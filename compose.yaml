@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    environment:
+      DATABASE_PATH: /data/kun-global.sqlite
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      CHATGPT_LOCAL_ENABLED: 'true'
+      CHATGPT_CALLBACK_PORT: ${CHATGPT_CALLBACK_PORT:-17653}
+      CHATGPT_CALLBACK_BIND: 0.0.0.0
+    ports: ["127.0.0.1:${CHATGPT_CALLBACK_PORT:-17653}:${CHATGPT_CALLBACK_PORT:-17653}"]
+    volumes:
+      - accounts:/data
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+    networks: [inference, edge]
+  web:
+    build: ./frontend
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:80"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [edge, inference]
+  prepare:
+    profiles: [tools]
+    build:
+      context: ./backend
+      target: preparer
+    volumes:
+      - ./models:/models
+    environment:
+      HF_HUB_OFFLINE: '0'
+      TRANSFORMERS_OFFLINE: '0'
+networks:
+  inference:
+    internal: true
+  edge:
+volumes:
+  accounts:

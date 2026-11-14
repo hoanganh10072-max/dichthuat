@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {imageOutputDecision} from '../src/outputPolicy.ts';
+const plan=(size,overflow=false)=>({size,overflow,lines:['Bản dịch']});
+assert.equal(imageOutputDecision([plan(24)],1000,1400).mode,'original');
+assert.equal(imageOutputDecision([plan(10)],1000,1400).mode,'a4');
+assert.equal(imageOutputDecision([plan(24,true)],1000,1400).mode,'a4');
+assert.equal(imageOutputDecision([],1000,1400).mode,'a4');
+assert.equal(imageOutputDecision([plan(24),plan(6)],1000,1400).mode,'a4','Even a small footer must remain readable');
+assert.deepEqual(imageOutputDecision([plan(24)],1000,1400),imageOutputDecision([plan(48)],2000,2800),'DPI must not change the preferred format');
+assert.equal(imageOutputDecision([plan(18)],1000,1400).mode,'original');
+console.log('Automatic output policy passed: readable form, small text, overflow, footer, raster-scale independence.');

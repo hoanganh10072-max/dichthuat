@@ -1,0 +1,5 @@
+# Optional historical local-model tooling; not installed in API runtime.
+-r requirements.txt
+ctranslate2==4.6.0
+transformers==4.51.3
+sentencepiece==0.2.0

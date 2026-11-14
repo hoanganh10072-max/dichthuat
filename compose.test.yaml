@@ -1,0 +1,13 @@
+# No production volumes, ports, credentials or network access.
+name: kun-global-tests
+services:
+  tests:
+    build:
+      context: ./backend
+      target: runtime
+    environment:
+      DATABASE_PATH: /tmp/kun-test-only.sqlite
+      APP_ORIGIN: http://localhost:8080
+      CHATGPT_LOCAL_ENABLED: 'true'
+    network_mode: none
+    command: [python, -m, pytest, -q, -p, 'no:cacheprovider']

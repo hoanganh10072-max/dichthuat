@@ -1,0 +1,17 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+pillow==11.2.1
+pytesseract==0.3.13
+pypdf==5.5.0
+python-docx==1.1.2
+httpx==0.28.1
+pytest==8.3.5
+langid==1.1.6
+pdfplumber==0.11.6
+pypdfium2==4.30.1
+reportlab==4.4.1
+opencv-python-headless==4.11.0.86
+pypinyin==0.55.0
+cryptography==47.0.0
+PyJWT[crypto]>=2.10.1,<3
