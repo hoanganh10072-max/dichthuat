@@ -24,7 +24,9 @@ exports/
 artifacts/
 work/
 .auth/
+.netlify/
 playwright-report/
 test-results/
+/frontend/public/pdfjs/
 *.log
 *.tsbuildinfo

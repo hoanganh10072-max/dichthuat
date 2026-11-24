@@ -3,3 +3,4 @@
 .managed-user-tabs{display:flex;gap:8px;border-bottom:1px solid #e5d5af;padding:18px 0 12px;margin-bottom:20px}.managed-user-tabs button{padding:10px 14px;border-radius:8px;color:#876032;font-size:12px}.managed-user-tabs button.selected{background:#ead7a7;color:#5f401c}.chatgpt-intro>div{min-width:0}.chatgpt-intro h3{overflow-wrap:anywhere}
 
 .plan-usage{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:11px 24px;background:#f8efdb;border-bottom:1px solid #e5d4ad;color:#89652c;font-size:11px}.plan-usage a{color:#77501f;text-decoration:underline;text-underline-offset:3px}
+.chatgpt-login-fallback{margin:16px 0;padding:16px;border:1px solid #dfc58e;border-radius:10px;background:#fff8e8}.chatgpt-login-fallback strong{color:#65451f}.chatgpt-login-fallback .chatgpt-actions{flex-wrap:wrap}.chatgpt-login-fallback a{display:inline-flex;align-items:center;gap:6px;overflow-wrap:anywhere}

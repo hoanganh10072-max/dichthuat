@@ -23,6 +23,13 @@ from app.openai_engine import ProviderError
 
 @pytest.fixture
 def siwc(monkeypatch):
+    # Historical OAuth contract fixtures explicitly inject the retired adapter.
+    # Production defaults to the shared API engine and never falls back to it.
+    from app.chatgpt_engine import ChatGPTEngine
+    monkeypatch.setenv('CHATGPT_LOCAL_ENABLED','true')
+    monkeypatch.setattr(type(engine),'state',ChatGPTEngine.state)
+    monkeypatch.setattr(engine,'credentials',lambda user_id:chatgpt.credentials(user_id))
+    monkeypatch.setattr(engine,'_response',ChatGPTEngine._response.__get__(engine,type(engine)))
     store = accounts.store
     admin = store.create_user('fixture-admin', 'fixture-password-admin-123', 'admin')
     user = store.create_user('fixture-user', 'fixture-password-user-456')
@@ -206,6 +213,32 @@ def test_completed_stream_with_missing_or_case_insensitive_content_type(siwc,mon
     response=siwc[1].post('/api/translate',json={'text':'Source fixture','source':'en','target':'vi','document':True})
     assert response.status_code==200,response.text
     assert response.json()['text']=='fixture translation'
+
+
+def test_completed_items_restore_empty_terminal_output(siwc,monkeypatch):
+    connected(siwc)
+    # Arrival order is not output order, and the terminal event omits output.
+    message={'type':'message','status':'completed','content':[{'type':'output_text','text':json.dumps({'translations':['Bản dịch thật từ sự kiện hoàn tất']})}]}
+    stream_fixture(monkeypatch,events=[
+        {'type':'response.output_item.done','output_index':1,'item':message},
+        {'type':'response.output_item.done','output_index':0,'item':{'type':'reasoning'}},
+        {'type':'response.completed','response':{'status':'completed','output':[],'usage':{'input_tokens':20,'output_tokens':10}}}])
+    result=siwc[1].post('/api/translate',json={'text':'Source fixture','source':'en','target':'vi'})
+    assert result.status_code==200,result.text
+    assert result.json()['text']=='Bản dịch thật từ sự kiện hoàn tất'
+    assert siwc[0].usage()[0]['input_tokens']==20
+
+
+@pytest.mark.parametrize('terminal',[None,'response.incomplete','response.failed','response.completed'])
+def test_finished_items_require_complete_response_and_message(siwc,monkeypatch,terminal):
+    connected(siwc)
+    message={'type':'message','status':'in_progress' if terminal=='response.completed' else 'completed',
+        'content':[{'type':'output_text','text':json.dumps({'translations':['Must not publish']})}]}
+    messages=[{'type':'response.output_item.done','output_index':0,'item':message}]
+    if terminal:messages.append({'type':terminal,'response':{'status':'completed','output':[]}})
+    stream_fixture(monkeypatch,events=messages)
+    result=siwc[1].post('/api/translate',json={'text':'Source fixture','source':'en','target':'vi'})
+    assert result.status_code>=400 and 'text' not in result.json()
 
 
 def test_explicit_non_stream_response_is_rejected(siwc,monkeypatch):
@@ -689,7 +722,7 @@ def test_user_provider_errors_do_not_expose_connection_setup(siwc,monkeypatch,st
 def test_admin_retains_detailed_connection_troubleshooting(siwc,monkeypatch):
     client=siwc[1]
     client.post('/api/auth/login',json={'username':'fixture-admin','password':'fixture-password-admin-123'})
-    assert 'ChatGPT' in client.get('/api/health').json()['message']
+    assert 'OpenAI API' in client.get('/api/health').json()['message']
     connected(siwc);stream_fixture(monkeypatch,status=401)
     response=client.post('/api/translate',json={'text':'hello','source':'en','target':'vi'})
     assert response.status_code==409 and 'ChatGPT' in response.json()['detail']

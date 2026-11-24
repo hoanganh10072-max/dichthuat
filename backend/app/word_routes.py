@@ -85,10 +85,14 @@ def document_word(item,edits):
             translation=(edit.translation if edit is not None else block['translation'])
             if keep:translation=edit.source_text if edit is not None and edit.source_text else block['text']
             if not translation.strip():raise ValueError('Tài liệu còn vùng chưa dịch. Hãy dịch lại trước khi xuất Word.')
-            regions.append({**{k:block[k] for k in ('x','y','width','height','text')},'translation':translation})
-        if not regions:continue
+            regions.append({**{k:block[k] for k in ('id','x','y','width','height','text')},'translation':translation,'format':block.get('format',{})})
+        if not regions:
+            pages.append({'width':source['width'],'height':source['height'],'regions':[],'tables':source.get('tables',[])})
+            continue
         preview=source.get('preview','')
-        tables=detect_tables(base64.b64decode(preview.split(',',1)[1]),source['width'],source['height']) if preview.startswith('data:image/') else []
+        tables=source.get('tables')
+        if tables is None:
+            tables=detect_tables(base64.b64decode(preview.split(',',1)[1]),source['width'],source['height']) if preview.startswith('data:image/') else []
         pages.append({'width':source['width'],'height':source['height'],'regions':regions,'tables':tables})
-    if not pages:raise ValueError('Tài liệu chưa có nội dung để xuất Word.')
+    if not any(p['regions'] for p in pages):raise ValueError('Tài liệu chưa có nội dung để xuất Word.')
     return build_word(pages)

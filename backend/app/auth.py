@@ -31,6 +31,8 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             return JSONResponse({'detail': 'Vui lòng đăng nhập để tiếp tục.'}, status_code=401)
         if request.url.path.startswith('/api/admin/') and (not user or user['role'] != 'admin'):
             return JSONResponse({'detail': 'Chỉ quản trị viên có quyền thực hiện.'}, status_code=403)
+        if ('/chatgpt/' in request.url.path or request.url.path.endswith('/chatgpt')) and os.getenv('CHATGPT_LOCAL_ENABLED','false').lower()!='true':
+            return JSONResponse({'detail':'Ứng dụng đã chuyển sang API. Admin cấu hình trong Quản trị → OpenAI API.'},status_code=410)
         request.state.account = user
         token = current_account.set(user)
         try:
@@ -183,10 +185,31 @@ def auth_router(engine):
             raise HTTPException(422, str(exc))
 
     @router.get('/api/admin/provider')
+    def provider():
+        config=accounts.store.provider()
+        with accounts.store.connect() as db:
+            saved=bool(db.execute("SELECT 1 FROM settings WHERE key='openai_key'").fetchone())
+        return {'model':config['model'],'configured':bool(config['key']),
+                'key_source':'saved' if saved else 'environment' if config['key'] else 'none'}
+
     @router.put('/api/admin/provider')
+    def configure_provider(body:ProviderSettings):
+        try:
+            accounts.store.configure_provider(body.model,
+                body.api_key.get_secret_value() if body.api_key is not None else None,body.clear_key)
+            return provider()
+        except ValueError as exc:raise HTTPException(422,str(exc)) from None
+
     @router.post('/api/admin/provider/test')
-    def retired_provider():
-        raise HTTPException(410, 'Bản này dùng ChatGPT riêng của từng user. Mở ChatGPT của tôi để kết nối.')
+    def test_provider():
+        from .openai_engine import ProviderError
+        from .engine import TranslationTooLong
+        try:
+            translated=engine.translate_segments(['Hello.'],'en','vi')
+            return {'ok':True,'model':accounts.store.provider()['model'],'message':'Đã nhận phản hồi dịch hợp lệ từ OpenAI API.'}
+        except ProviderError as exc:raise HTTPException(exc.status_code,str(exc)) from None
+        except BlockingIOError as exc:raise HTTPException(429,str(exc)) from None
+        except TranslationTooLong:raise HTTPException(422,'API chưa trả đầy đủ câu thử. Kiểm tra model và thử lại.') from None
 
     @router.get('/api/admin/usage')
     def usage():

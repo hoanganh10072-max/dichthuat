@@ -1,6 +1,8 @@
+import {PUBLIC_PREVIEW,PREVIEW_NOTICE} from './public-preview';
 export type Account = {id:string;username:string;role:'admin'|'user';active:boolean;created_at:number};
 
 export async function accountApi(path:string, init:RequestInit={}) {
+  if(PUBLIC_PREVIEW)throw new Error(PREVIEW_NOTICE);
   let response:Response;
   try {
     response = await fetch(`/api/${path}`, {...init, credentials:'same-origin',
@@ -23,6 +25,7 @@ export function jsonRequest(method:string, body:unknown):RequestInit {
 }
 
 export async function accountFile(path:string,init:RequestInit):Promise<Blob>{
+  if(PUBLIC_PREVIEW)throw new Error(PREVIEW_NOTICE);
   let response:Response;
   try{response=await fetch(`/api/${path}`,{...init,credentials:'same-origin',headers:{...Object.fromEntries(new Headers(init.headers)),'X-Kun-Request':'1'}});}
   catch{throw new Error('Mất kết nối khi xuất Word. Hãy thử tải lại.');}

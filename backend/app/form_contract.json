@@ -1,0 +1,107 @@
+{
+  "layout": {
+    "type": "object",
+    "properties": {
+      "source_language": {
+        "type": "string"
+      },
+      "regions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "font_size": {
+              "type": "number"
+            },
+            "bold": {
+              "type": "boolean"
+            },
+            "align": {
+              "type": "string",
+              "enum": [
+                "left",
+                "center",
+                "right"
+              ]
+            },
+            "color": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "source",
+            "text",
+            "x",
+            "y",
+            "width",
+            "height",
+            "font_size",
+            "bold",
+            "align",
+            "color"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "source_language",
+      "regions"
+    ],
+    "additionalProperties": false
+  },
+  "segments": {
+    "type": "object",
+    "properties": {
+      "source_language": {
+        "type": "string"
+      },
+      "translations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "source_language",
+      "translations"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -47,7 +47,7 @@ class ChatGPTConnections:
 
     def local_enabled(self):
         origin = urlsplit(os.getenv('APP_ORIGIN', 'http://localhost:8080'))
-        return os.getenv('CHATGPT_LOCAL_ENABLED', 'true').lower() == 'true' and origin.hostname in LOOPBACK
+        return os.getenv('CHATGPT_LOCAL_ENABLED', 'false').lower() == 'true' and origin.hostname in LOOPBACK
 
     def callback_uri(self):
         return f'http://127.0.0.1:{int(os.getenv("CHATGPT_CALLBACK_PORT", "17653"))}/auth/callback'

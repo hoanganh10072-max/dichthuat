@@ -103,11 +103,11 @@ def test_lockout_and_password_revocation(users):
     assert client.patch('/api/admin/users/' + user['id'], json={'active': False}).status_code == 200
 
 
-def test_no_connection_is_not_ready_and_shared_key_configuration_is_retired(users):
+def test_no_key_is_not_ready_and_invalid_key_is_rejected(users):
     store, client, *_ = users
     login(client)
     assert client.post('/api/translate', json={'text':'Hello there','source':'en','target':'vi'}).status_code == 409
-    assert client.put('/api/admin/provider', json={'model':'unused','api_key':'not-used'}).status_code == 410
+    assert client.put('/api/admin/provider', json={'model':'unused','api_key':'not-used'}).status_code == 422
     assert client.get('/api/admin/usage').json() == []
 
 

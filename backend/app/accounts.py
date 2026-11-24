@@ -251,6 +251,10 @@ class Store:
             raise ValueError('Tên mô hình không hợp lệ.')
         if key is not None and not 20 <= len(key.strip()) <= 512:
             raise ValueError('Khóa API không hợp lệ.')
+        if key is not None and (not key.strip().isascii() or any(c.isspace() or ord(c)<33 for c in key.strip())):
+            raise ValueError('Khóa API chứa ký tự không hợp lệ.')
+        if clear_key and key is not None:
+            raise ValueError('Chọn lưu khóa mới hoặc xóa khóa, không dùng đồng thời.')
         encrypted = self.cipher().encrypt(key.strip().encode()).decode() if key is not None else None
         with self.connect() as db:
             db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', ('openai_model', model))

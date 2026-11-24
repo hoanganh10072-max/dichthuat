@@ -17,6 +17,52 @@ def sample():
     c.save();return stream.getvalue()
 
 
+def test_pdfminer_empty_page_tree_is_recovered_without_changing_original(monkeypatch):
+    import pdfplumber
+    from contextlib import contextmanager
+    open_original=pdfplumber.open
+    inputs=[]
+    @contextmanager
+    def fail_first_tree(stream):
+        inputs.append(stream.getvalue())
+        with open_original(stream) as pdf:
+            if len(inputs)==1:pdf._pages=[]
+            yield pdf
+    monkeypatch.setattr(pdfplumber,'open',fail_first_tree)
+    source=sample();result=inspect_pdf(source,'tree.pdf','en',True)
+    assert len(result['pages'])==1
+    assert any('Software license agreement' in b['text'] for b in result['pages'][0]['blocks'])
+    assert len(inputs)==2 and inputs[0]==source and inputs[1]!=source
+    assert session(result['id'])['data']==source
+    SESSIONS.clear()
+
+
+def test_actual_page_limit_precedes_text_extraction(monkeypatch):
+    import pdfplumber
+    import pytest
+    stream=io.BytesIO();pdf=canvas.Canvas(stream)
+    for _ in range(11):pdf.showPage()
+    pdf.save()
+    def forbidden(*args,**kwargs):raise AssertionError('Oversized PDF must not reach text extraction')
+    monkeypatch.setattr(pdfplumber,'open',forbidden)
+    with pytest.raises(ValueError,match='PDF có 11 trang'):
+        inspect_pdf(stream.getvalue(),'eleven.pdf','en',False,'word')
+
+
+def test_unrecoverable_tree_does_not_report_a_page_limit(monkeypatch):
+    import pdfplumber
+    import pytest
+    from contextlib import contextmanager
+    open_original=pdfplumber.open
+    @contextmanager
+    def broken_tree(stream):
+        with open_original(stream) as pdf:
+            pdf._pages=[];yield pdf
+    monkeypatch.setattr(pdfplumber,'open',broken_tree)
+    with pytest.raises(ValueError,match='Cấu trúc PDF không đọc được đầy đủ'):
+        inspect_pdf(sample(),'broken.pdf','en',True)
+
+
 def test_pdf_layout_keeps_page_and_embedded_graphics():
     SESSIONS.clear()
     source=sample(); result=inspect_pdf(source,'sample.pdf','en',True)

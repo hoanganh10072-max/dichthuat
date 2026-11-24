@@ -54,18 +54,41 @@ def detect_pdf_language(pdf,renderer,installed,mapping):
         detected=detect_language(native)
         if mapping[detected['code']] in installed:
             return {**detected,'method':'pdf-text'}
-    texts=[];best=None;best_count=-1
+    texts=[];best=None;best_count=-1;page_candidates=[]
+    latin={'en','vi','es','fr','de','id','ms','it','pt','nl'}
     for i in range(min(3,len(pdf.pages))):
         page=pdf.pages[i]
         bitmap=renderer[i].render(scale=min(1.8,1400/float(page.width)))
         image=bitmap.to_pil().convert('RGB');bitmap.close()
         d=pytesseract.image_to_data(image,lang='eng',config='--psm 11',output_type=pytesseract.Output.DICT,timeout=20)
+        readable=[(w,float(c)) for w,c in zip(d['text'],d['conf']) if w.strip() and float(c)>=0]
+        page_text=' '.join(w for w,c in readable)
+        page_confidence=sum(c*len(w) for w,c in readable)/max(1,sum(len(w) for w,c in readable))
         words=[w for w,c in zip(d['text'],d['conf']) if float(c)>=75 and len(re.findall(r'[A-Za-zÀ-ž]',w))>=2]
         text=' '.join(words);texts.append(text)
         count=len(re.findall(r'[A-Za-zÀ-ž]',text))
+        page_letters=len(re.findall(r'[A-Za-zÀ-ž]',page_text))
+        if page_letters>=180 and page_confidence>=50:
+            try:
+                # Keep grammatical context: filtering every word below 75
+                # can remove the source-language labels in multilingual forms.
+                detected=detect_language(page_text)
+                if detected['code'] in latin and not detected['uncertain'] and mapping[detected['code']] in installed:
+                    page_candidates.append((page_letters,detected,image))
+            except ValueError:
+                pass
         if count>best_count:best=image;best_count=count
+    # Do not let a noisy cover overwhelm a clear, independently confirmed
+    # following page when choosing the document's OCR hint.
+    for _,detected,image in sorted(page_candidates,key=lambda entry:entry[0],reverse=True):
+        confirm=pytesseract.image_to_string(image,lang=mapping[detected['code']],config='--psm 11',timeout=20)
+        try:
+            check=detect_language(confirm)
+            if check['code']==detected['code'] and not check['uncertain'] and len(re.findall(r'[A-Za-zÀ-ž]',confirm))>=100:
+                return {**detected,'method':'pdf-page-confirmed'}
+        except ValueError:
+            pass
     evidence='\n'.join(texts)
-    latin={'en','vi','es','fr','de','id','ms','it','pt','nl'}
     if len(re.findall(r'[A-Za-zÀ-ž]',evidence))>=180:
         try:
             detected=detect_language(evidence)
@@ -104,5 +127,29 @@ def detect_page_language(image,installed,mapping,hint,*,native=''):
                     return {**detected,'method':'page-latin-confirmed'}
         except ValueError:
             pass
+    # A decorative/low-contrast scan can give the wrong traineddata a high
+    # script score. Verify the document's language with that OCR model and
+    # semantic evidence before trying unrelated alphabets. Strong per-page
+    # evidence above still takes precedence in mixed-language documents.
+    if hint in {'es','en','vi','fr','de','id','ms','it','pt','nl'} and mapping.get(hint) in installed:
+        # Use an overview for language verification: enlarged security patterns
+        # can otherwise overwhelm real words. Full-resolution OCR stays intact.
+        for size in ((1200,1400),(1000,1200),(1400,1600)):
+            overview=image.copy();overview.thumbnail(size)
+            try:
+                data=pytesseract.image_to_data(overview,lang=mapping[hint],config='--psm 11',output_type=pytesseract.Output.DICT,timeout=8)
+            except RuntimeError:
+                continue
+            words=[(w,float(c)) for w,c in zip(data['text'],data['conf']) if w.strip() and float(c)>=0]
+            hinted=' '.join(w for w,c in words)
+            confidence=sum(c*len(w) for w,c in words)/max(1,sum(len(w) for w,c in words))
+            if confidence<45 or len(re.findall(r'[A-Za-zÀ-ž]',hinted))<100:
+                continue
+            try:
+                detected=detect_language(hinted)
+                if detected['code']==hint and not detected['uncertain']:
+                    return {**detected,'method':'page-document-confirmed'}
+            except ValueError:
+                pass
     result=detect_image_language(preview,installed,mapping)
     return result

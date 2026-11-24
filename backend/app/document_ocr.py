@@ -147,7 +147,7 @@ def ocr_words(image,scale,trained,zones,protected):
             # Suppress pale blue patterns and colored borders before OCR.
             rgb=np.asarray(crop)
             darkest=rgb.min(axis=2); lightest=rgb.max(axis=2)
-            if trained in ('spa','fra','deu','eng','vie'):
+            if zone.get('read_color') or trained in ('spa','fra','deu','eng','vie'):
                 # Diplomas often use dark blue type. Do not discard it as an
                 # ornamental border just because the ink is saturated.
                 ink=cv2.cvtColor(rgb,cv2.COLOR_RGB2GRAY)<155
@@ -167,7 +167,7 @@ def ocr_words(image,scale,trained,zones,protected):
             # Sparse OCR can mistake ornate borders for tiny Han characters.
             # Keep low-confidence words inside real lines for review, rather
             # than dropping a legal label just because two glyphs are unclear.
-            if zone['image'] and (min(w,h)<1.8 or h<4):
+            if zone['image'] and not zone.get('read_color') and (min(w,h)<1.8 or h<4):
                 continue
             if any(x<r['x']+r['width'] and x+w>r['x'] and y<r['y']+r['height'] and y+h>r['y'] for r in exclusions):
                 continue

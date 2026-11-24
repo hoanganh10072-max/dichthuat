@@ -98,4 +98,4 @@ class LocalEngine:
 
 # Retain the old implementation only for historical local-model fixtures.
 # The production app exclusively uses OpenAI; it never silently falls back.
-from .chatgpt_engine import ChatGPTEngine as Engine
+from .api_engine import APIEngine as Engine

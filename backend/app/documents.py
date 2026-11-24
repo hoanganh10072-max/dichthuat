@@ -7,15 +7,17 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from contextlib import closing
+from contextlib import closing, ExitStack
 from pathlib import Path
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from .account_context import current_account
 from .openai_engine import ProviderError
+from .service_messages import provider_message
 
 PDF_LOCK = threading.Lock()
 SESSIONS_LOCK = threading.Lock()
@@ -73,6 +75,7 @@ def public(item):
     result['overflow_count']=item.get('overflow_count',0)
     result['output_policy']=item.get('output_policy')
     result['download_url']=download_link(item)
+    result['translation_method']=item.get('translation_method')
     return result
 
 
@@ -80,27 +83,41 @@ def intersects(a, b):
     return a['x'] < b['x']+b['width'] and a['x']+a['width'] > b['x'] and a['y'] < b['y']+b['height'] and a['y']+a['height'] > b['y']
 
 
-def inspect_pdf(data, filename, source, preserve_images=False):
+def inspect_pdf(data, filename, source, preserve_images=False, output_format='pdf'):
     import pdfplumber
     import pypdfium2 as pdfium
     import pytesseract
     from .extract import OCR_LANGS, validate_ocr_script
     from .engine import LANGUAGES
     from .document_ocr import protected_marks, ocr_words, repaired_background, native_page_words
-    from pypdf import PdfReader
+    from pypdf import PdfReader, PdfWriter
     if source not in LANGUAGES and source != 'auto':
         raise ValueError('Ngôn ngữ nguồn không hợp lệ.')
     check=PdfReader(io.BytesIO(data))
     if check.is_encrypted:
         raise ValueError('PDF có mật khẩu chưa được hỗ trợ trong chế độ giữ form.')
-    if check.get_fields() or any(a.get_object().get('/Subtype')=='/Widget' for p in check.pages for a in p.get('/Annots',[])):
+    if output_format=='pdf' and (check.get_fields() or any(a.get_object().get('/Subtype')=='/Widget' for p in check.pages for a in p.get('/Annots',[]))):
         raise ValueError('PDF có trường điền/chữ ký tương tác chưa được hỗ trợ. Chế độ này dành cho trang PDF tĩnh; không làm mất trường form hoặc chữ ký của file gốc.')
     pages = []
     auto_source=source=='auto'
     installed=pytesseract.get_languages(config='')
-    with PDF_LOCK, pdfplumber.open(io.BytesIO(data)) as pdf, closing(pdfium.PdfDocument(data)) as renderer:
-        if not 1 <= len(pdf.pages) <= 10:
-            raise ValueError('Chế độ giữ form hỗ trợ PDF tối đa 10 trang mỗi lượt.')
+    with PDF_LOCK, ExitStack() as resources:
+        renderer=resources.enter_context(closing(pdfium.PdfDocument(data)))
+        page_count=len(renderer)
+        if page_count==0:
+            raise ValueError('PDF không có trang đọc được. Hãy kiểm tra hoặc lưu lại tài liệu.')
+        if page_count>10:
+            raise ValueError(f'PDF có {page_count} trang; mỗi lượt hỗ trợ tối đa 10 trang. Hãy chia tài liệu nhỏ hơn.')
+        pdf=resources.enter_context(pdfplumber.open(io.BytesIO(data)))
+        if len(pdf.pages)!=page_count:
+            # PDFium can render some PDFs whose cross-reference/page-tree
+            # representation PDFMiner cannot traverse. Rebuild an analysis-only
+            # copy; renderer and item['data'] still use the original bytes.
+            repaired=io.BytesIO();writer=PdfWriter()
+            writer.append_pages_from_reader(check);writer.write(repaired)
+            pdf=resources.enter_context(pdfplumber.open(io.BytesIO(repaired.getvalue())))
+            if len(pdf.pages)!=page_count:
+                raise ValueError('Cấu trúc PDF không đọc được đầy đủ. Hãy lưu/in lại thành PDF rồi tải lên; ứng dụng chưa phân tích hết trang.')
         if source=='auto':
             from .auto_ocr import detect_pdf_language
             source=detect_pdf_language(pdf,renderer,installed,OCR_LANGS)['code']
@@ -117,7 +134,18 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                     rect['width']=min(rect['width'],width-rect['x']);rect['height']=min(rect['height'],height-rect['y'])
                     if not any(intersects(rect,r) for r in embedded):
                         embedded.append(rect)
-            protected=embedded if preserve_images else protected_marks(image,scale)
+            if output_format=='word':
+                # Word reads text in seals too; only photos and machine codes
+                # are masked. There is no source background to preserve.
+                preserve_images=False
+                protected=[r for r in protected_marks(image,scale) if r.get('kind') in ('photo','code')]
+            else:
+                protected=embedded if preserve_images else protected_marks(image,scale)
+            tables=[]
+            if output_format=='word':
+                from .word_export import detect_tables
+                raster=io.BytesIO();image.save(raster,format='PNG')
+                tables=detect_tables(raster.getvalue(),width,height,single_frames=True)
             full_scan=any(g['width']*g['height']>=width*height*.75 for g in page.images)
             page_source=source
             if auto_source:
@@ -141,8 +169,15 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                 zones[0]['native_words']=native_words
             if not preserve_images:
                 zones.extend({**r,'image':True} for r in embedded)
+            if output_format=='word':
+                for zone in zones:zone['read_color']=True
             words=ocr_words(image,scale,trained,zones,protected)
             words,detected_regions=recover_regions(image,scale,trained,zones,protected,words)
+            if output_format=='word':
+                cells=[cell for table in tables for cell in table['cells']]
+                for word in words:
+                    cx=word['x']+word['width']/2;cy=word['y']+word['height']/2
+                    word['cell']=next((i for i,c in enumerate(cells) if c['x']-2<=cx<=c['x']+c['width']+2 and c['y']-2<=cy<=c['y']+c['height']+2),None)
             # Group by geometric baseline, not Tesseract's paragraph IDs: the
             # sample's outlined Chinese text produced overlapping paragraphs.
             rows=[]
@@ -158,7 +193,8 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                 for word in sorted(row['words'],key=lambda w:w['x']):
                     gap_blocked=run and any(r['x']>=run[-1]['x']+run[-1]['width'] and r['x']+r['width']<=word['x'] and r['y']<word['y']+word['height'] and r['y']+r['height']>word['y'] for r in protected)
                     separate_region=run and word.get('region') and run[-1].get('region') and word['region']['x']>=run[-1]['region']['x']+run[-1]['region']['width']
-                    if run and (gap_blocked or separate_region or word['x']-run[-1]['x']-run[-1]['width']>max(35,word['height']*5)):
+                    separate_cell=run and output_format=='word' and word.get('cell')!=run[-1].get('cell')
+                    if run and (gap_blocked or separate_region or separate_cell or word['x']-run[-1]['x']-run[-1]['width']>max(35,word['height']*5)):
                         runs.append(run);run=[]
                     run.append(word)
                 if run:runs.append(run)
@@ -167,19 +203,21 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                 x=min(w['x'] for w in run); y=min(w['y'] for w in run)
                 right=max(w['x']+w['width'] for w in run); bottom=max(w['y']+w['height'] for w in run)
                 for word in run:
-                    if word.get('region'):
+                    if word.get('region') and output_format!='word':
                         r=word['region'];x=min(x,r['x']);y=min(y,r['y'])
                         right=max(right,r['x']+r['width']);bottom=max(bottom,r['y']+r['height'])
                 median=sorted(w['height'] for w in run)[len(run)//2]
                 previous=next(reversed(grouped.values()),None) if grouped else None
                 height_tolerance=.6 if page_source in ('es','en','fr','de','vi') else .3
                 can_merge=previous and previous['zone']==run[0]['zone'] and y>=previous['bottom']-1 and y-previous['bottom']<median*2 and (abs(x-previous['x'])<35 or abs(right-previous['right'])<15) and abs(median-sorted(previous['heights'])[len(previous['heights'])//2])<median*height_tolerance
+                if output_format=='word' and previous and previous.get('cell')!=run[0].get('cell'):
+                    can_merge=False
                 if zones[run[0]['zone']]['image']:
                     can_merge=bool(can_merge and page_source in ('es','en','fr','de','vi') and y-previous['bottom']<median*.7 and previous.get('last_width',0)>zones[run[0]['zone']]['width']*.35)
                 if can_merge and x-previous['x']>12 and previous.get('last_width',right-x)<(previous['right']-previous['x'])*.75:
                     can_merge=False
                 key=len(grouped) if not can_merge else next(reversed(grouped))
-                block=grouped.setdefault(key,{'words':[],'x':x,'y':y,'right':right,'bottom':bottom,'heights':[],'conf':[],'first_x':x,'zone':run[0]['zone'],'boxes':[]})
+                block=grouped.setdefault(key,{'words':[],'x':x,'y':y,'right':right,'bottom':bottom,'heights':[],'conf':[],'first_x':x,'zone':run[0]['zone'],'cell':run[0].get('cell'),'boxes':[]})
                 block['boxes'].extend(run)
                 block['last_width']=right-x
                 block['words'].extend((0,w['text']) for w in run)
@@ -188,14 +226,14 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                 block['heights'].extend(w['height'] for w in run);block['conf'].extend(w['conf'] for w in run)
             blocks=[]
             for index,b in enumerate(grouped.values()):
-                if zones[b['zone']]['image'] and sum(b['conf'])/len(b['conf'])<40:
+                if output_format!='word' and zones[b['zone']]['image'] and sum(b['conf'])/len(b['conf'])<40:
                     continue
                 text=' '.join(word for _,word in b['words'])
                 if page_source in ('zh','ja'):
                     text=re.sub(r'(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])','',text)
                     text=re.sub(r'\s*-\s*','-',text)
                 # Identifiers and company names default to the unchanged source.
-                keep=bool(not any(c.isalpha() for c in text) or re.fullmatch(r'[A-Z]{2,12}',text)
+                keep=bool(not any(c.isalpha() for c in text) or (output_format!='word' and re.fullmatch(r'[A-Z]{2,12}',text))
                     or (re.fullmatch(r'[A-Za-z0-9_.:/%+-]+',text) and re.search(r'\d',text)))
                 blocks.append({'id':f'{number}-{index}','text':text,'translation':text if keep else '',
                     'keep':keep,'x':b['x'],'y':b['y'],'width':b['right']-b['x'],'height':b['bottom']-b['y'],
@@ -209,7 +247,8 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                         inset=min(22,zones[b['zone']]['width']*.065)
                         blocks[-1]['bounds']['x']+=inset
                         blocks[-1]['bounds']['width']-=2*inset
-                    blocks[-1]['background']=repaired_background(image,scale,blocks[-1],b['boxes'])
+                    if output_format!='word':
+                        blocks[-1]['background']=repaired_background(image,scale,blocks[-1],b['boxes'])
             if blocks:
                 validate_ocr_script(' '.join(b['text'] for b in blocks),page_source)
                 if full_scan:
@@ -222,7 +261,7 @@ def inspect_pdf(data, filename, source, preserve_images=False):
                     unread.append({k:r[k] for k in ('x','y','width','height','confidence')})
             preview=io.BytesIO(); image.thumbnail((1200,1700)); image.save(preview,format='JPEG',quality=85)
             pages.append({'number':number+1,'source':page_source,'unread_regions':unread,'coverage_evaluated':trained in LATIN_OCR,'width':width,'height':height,'preview':'data:image/jpeg;base64,'+base64.b64encode(preview.getvalue()).decode(),
-                'protected':protected,'graphics':embedded,'blocks':blocks,'rules':[{'x0':float(l['x0']),'x1':float(l['x1']),'top':float(l['top']),'bottom':float(l['bottom']),'width':float(l.get('linewidth') or .5)} for l in page.edges if (abs(l['x1']-l['x0'])>25 and abs(l['bottom']-l['top'])<2) or (abs(l['bottom']-l['top'])>25 and abs(l['x1']-l['x0'])<2)]})
+                'protected':protected,'graphics':embedded,'blocks':blocks,**({'tables':tables} if output_format=='word' else {}),'rules':[{'x0':float(l['x0']),'x1':float(l['x1']),'top':float(l['top']),'bottom':float(l['bottom']),'width':float(l.get('linewidth') or .5)} for l in page.edges if (abs(l['x1']-l['x0'])>25 and abs(l['bottom']-l['top'])<2) or (abs(l['bottom']-l['top'])>25 and abs(l['x1']-l['x0'])<2)]})
             rendered.close()
     if not any(p['blocks'] for p in pages):
         raise ValueError('Không đọc được chữ trong tài liệu. Thử bỏ chế độ giữ ảnh gốc hoặc dùng file rõ hơn.')
@@ -453,11 +492,78 @@ class DocumentRequest(BaseModel):
     edits:list[Edit]=Field(default_factory=list,max_length=400)
     glossary:dict[str,str]=Field(default_factory=dict,max_length=60)
     automatic:bool=False
+    output_format:Literal['pdf','word']='pdf'
+
+
+class OriginalDocumentRequest(BaseModel):
+    session_id:str=Field(min_length=1,max_length=64)
+    target:str='vi'
+    prompt:str=Field(min_length=1,max_length=6000)
 
 
 def create_document_router(engine):
     router=APIRouter(prefix='/api/documents')
     gate=threading.Lock()
+
+    @router.post('/prepare')
+    def prepare(file:UploadFile=File(...),source:str=Form('auto')):
+        from .document_file_translation import prepare_pdf
+        try:data=file.file.read(30*1024*1024+1)
+        finally:file.file.close()
+        if len(data)>30*1024*1024:raise HTTPException(413,'PDF tối đa 30 MB.')
+        if not gate.acquire(False):raise HTTPException(429,'Máy chủ đang xử lý tài liệu khác.')
+        try:
+            pages=prepare_pdf(data,file.filename or '',source)
+            account=current_account.get();owner=account['id'] if account else None
+            item={'id':uuid.uuid4().hex,'owner_id':owner,'filename':Path(file.filename).name,'data':data,'pages':pages,
+                'source':source,'input_source':source,'languages':[] if source=='auto' else [source],'warnings':[],'glossary':{},
+                'expires':time.monotonic()+TTL,'translation_method':'original-file-chatgpt'}
+            with SESSIONS_LOCK:
+                now=time.monotonic()
+                for key in list(SESSIONS):
+                    if SESSIONS[key]['expires']<now:del SESSIONS[key]
+                if sum(s.get('owner_id')==owner for s in SESSIONS.values())>=3 or sum(len(s['data']) for s in SESSIONS.values())+len(data)>100*1024*1024:
+                    raise ValueError('Máy chủ đang giữ đủ phiên tài liệu. Đợi phiên cũ hết hạn rồi thử lại.')
+                SESSIONS[item['id']]=item
+            return public(item)
+        except ValueError as exc:raise HTTPException(422,str(exc)) from None
+        finally:gate.release()
+
+    @router.post('/translate-original')
+    def translate_file(request:OriginalDocumentRequest):
+        import copy
+        from .document_file_translation import translate_original
+        from .word_routes import document_word
+        from .service_messages import access_message
+        from .engine import LANGUAGES
+        if request.target not in LANGUAGES or not request.prompt.strip():
+            raise HTTPException(422,'Ngôn ngữ hoặc câu lệnh dịch không hợp lệ.')
+        if not gate.acquire(False):raise HTTPException(429,'Máy chủ đang xử lý tài liệu khác.')
+        try:
+            original=session(request.session_id)
+            if not original.get('translation_method')=='original-file-chatgpt':raise HTTPException(409,'Hãy chọn lại PDF để gửi tài liệu gốc.')
+            if engine.state!='ready':raise HTTPException(409,access_message())
+            # A retry may only replace the earlier result after the complete
+            # response and valid Word file have both been received/created.
+            item=copy.deepcopy({k:v for k,v in original.items() if k not in ('output_pdf','output_word','output_policy','translation_complete','output_revision')})
+            pages,notes=translate_original(engine,item,request.target,request.prompt)
+            item.update(pages=pages,target=request.target,automatic=True,translation_complete=True,warnings=notes,
+                languages=list(dict.fromkeys(p['source'] for p in pages if p['source']!='unknown')),
+                expires=time.monotonic()+TTL,ocr_unread_count=0,untranslated_count=0)
+            item['source']=next((p['source'] for p in pages if p['source']!='unknown'),'unknown')
+            item['output_word']=document_word(item,{})
+            item['output_policy']={'mode':'a4','format':'docx','reason':'Dịch trực tiếp file gốc theo câu lệnh của bạn; Word A4 nền trắng và khung bảng chỉnh sửa được.'}
+            with SESSIONS_LOCK:SESSIONS[item['id']]=item
+            return {'document':public(item),'pages':[],'ready':True}
+        except HTTPException:raise
+        except BlockingIOError as exc:raise HTTPException(429,str(exc)) from None
+        except ProviderError as exc:raise HTTPException(exc.status_code,provider_message(exc)) from None
+        except ValueError as exc:raise HTTPException(422,str(exc)) from None
+        except Exception:
+            import logging
+            logging.exception('Original document translation failed')
+            raise HTTPException(503,'Chưa hoàn tất yêu cầu dịch tài liệu. Hãy thử lại; chưa có kết quả mới.') from None
+        finally:gate.release()
 
     @router.post('/complete')
     def complete(request:DocumentRequest):
@@ -495,11 +601,13 @@ def create_document_router(engine):
             from .output_policy import PDF_FORM_LANGUAGES, document_output_policy
             item['target']=request.target
             item['translation_complete']=True
-            if request.target not in PDF_FORM_LANGUAGES:
+            if request.output_format=='word' or request.target not in PDF_FORM_LANGUAGES:
                 from .word_routes import document_word
                 item['output_word']=document_word(item,{})
                 item.pop('output_revision',None)
                 item['output_policy']=document_output_policy(item)
+                if request.output_format=='word':
+                    item['output_policy']={'mode':'a4','format':'docx','reason':'Word A4 nền trắng, dựng lại khung bảng; không ghép lên nền PDF gốc.'}
                 with SESSIONS_LOCK:SESSIONS[item['id']]=item
                 return {'document':public(item),'pages':[],'ready':True}
             output=export_pdf(item,{},request.target,automatic=True)
@@ -515,18 +623,18 @@ def create_document_router(engine):
         except BlockingIOError as exc:
             raise HTTPException(429,str(exc))
         except ProviderError as exc:
-            raise HTTPException(exc.status_code,str(exc))
+            raise HTTPException(exc.status_code,provider_message(exc))
         except ValueError as exc:
             raise HTTPException(422,str(exc))
         except Exception:
             import logging
             logging.exception('Automatic PDF translation failed')
-            raise HTTPException(503,'Chưa hoàn tất dịch tài liệu. Kiểm tra mô hình và thử lại; không có bản PDF hoàn chỉnh để tải.')
+            raise HTTPException(503,'Chưa hoàn tất dịch tài liệu. Kiểm tra kết nối dịch và thử lại; chưa có bản dịch hoàn chỉnh để tải.')
         finally:
             gate.release()
 
     @router.post('/analyze')
-    def analyze(file:UploadFile=File(...),source:str=Form('auto'),preserve_images:bool=Form(False)):
+    def analyze(file:UploadFile=File(...),source:str=Form('auto'),preserve_images:bool=Form(False),output_format:Literal['pdf','word']=Form('pdf')):
         if not (file.filename or '').lower().endswith('.pdf'):
             raise HTTPException(422,'Chế độ giữ form hiện hỗ trợ PDF. DOCX/TXT dùng trích xuất văn bản.')
         data=file.file.read(30*1024*1024+1); file.file.close()
@@ -535,7 +643,7 @@ def create_document_router(engine):
         if not gate.acquire(False):
             raise HTTPException(429,'Máy chủ đang xử lý PDF khác. Vui lòng thử lại.')
         try:
-            return inspect_pdf(data,file.filename,source,preserve_images)
+            return inspect_pdf(data,file.filename,source,False,'word') if output_format=='word' else inspect_pdf(data,file.filename,source,preserve_images)
         except HTTPException:
             raise
         except Exception as exc:

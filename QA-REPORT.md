@@ -1,5 +1,47 @@
 # Kiểm tra chức năng KUN GLOBAL — 13/11/2026
 
+## Chuyển sang OpenAI API dùng chung — 23/11/2026
+
+Production dùng APIEngine, lấy khóa/model chung từ cấu hình admin (khóa lưu mã hóa ưu tiên hơn biến môi trường backend). Văn bản, ảnh trực tiếp, PDF gốc và bước nhóm nhãn–giá trị dùng cùng API; vẫn áp dụng hướng dẫn Translator Pro và các kiểm tra đủ trang/vùng, dựng khung Word. Không dùng OAuth cũ làm fallback. Tắt callback listener và bỏ port 17653 khỏi compose; endpoint OAuth cũ trả 410 trong chế độ triển khai. Giữ DB tài khoản/lịch sử/kết nối cũ, không xóa hoặc chuyển mật khẩu.
+
+Admin có Lưu cấu hình API, Kiểm tra kết nối bằng một câu thử, Xóa khóa đã lưu; không trả/đọc lại khóa. Lưu khóa chỉ báo đã cấu hình, không giả xác nhận kết nối. User không thấy phần cấu hình API và không cần kết nối ChatGPT. Có chú thích phí API riêng. Kiểm thử API không mạng xác nhận khóa mã hóa/không lộ, phân quyền admin/user, API dùng chung, usage theo user, lỗi key/quota/provider, ảnh và nguyên PDF đi đúng endpoint, Word dùng lại kết quả, xác thực cấu hình và khóa từ env. UI fixture xác nhận trường khóa ẩn/clear sau save, giữ khóa khi bỏ trống, test chỉ gọi khi chủ động, báo lỗi, xóa khóa, user không thấy cấu hình và responsive 320/375/768/1280.
+
+Suite cuối đạt **224 passed, 4 skipped** trong container không mạng/DB tạm; build TypeScript/Vite và Docker đạt. Không có khóa API thật được cung cấp trong lần chuyển đổi; chưa kiểm chứng inference tính phí bằng API. Phản hồi model trong test là fixture. Các kiểm thử OAuth cũ chỉ còn dùng adapter được inject tường minh trong fixture, không đại diện provider triển khai mới.
+
+## Đối chiếu PDF scan mẫu thực tế — 17/11/2026
+
+Đã kiểm tra mẫu người dùng 2 trang bằng luồng dịch thật. Bản dựng ban đầu kéo thành 10 trang do các cột hẹp và nhiều bảng sát nhau. Sửa nhóm dòng/cột theo vùng giao nhau, tách ranh giới các bảng DOCX, đặt chiều rộng rõ ràng và mở rộng bảng nhiều cột khi cần A4 dễ đọc. Giữ các khung đơn trong luồng đầu trang, tách chữ dấu dọc ra khỏi ô tiêu đề, giữ mọi bản dịch và cỡ chữ các hệ chữ. Biểu mẫu mở dày đặc được đối chiếu lại bằng lượt mô hình bố cục chỉ trả ID vùng; không chỉnh tay các trường của mẫu. Xuất Word và bộ xem trước dùng cùng nhóm nhãn–giá trị.
+
+Mẫu thực tế có 221 vùng dịch; kiểm tra nội dung DOCX cuối không mất vùng nào, không đổi các chuỗi số từ 4 chữ số trở lên giữa văn bản đã đọc và bản dịch, khung Apostille có 24 ô. Có 4 vùng chữ mờ/chữ ký được đánh dấu không đọc rõ. Không coi OCR hoặc số vùng là bằng chứng mọi chữ nguồn đều đã đọc đúng. Tệp gốc được giữ nguyên. Bản Word kiểm tra bằng Microsoft Word có 4 trang A4 để giữ chữ rõ; bố cục tương đối, không trùng phân trang 2 trang scan. Cũng render bằng `render_docx.py`/LibreOffice để kiểm tra lỗi dàn trang. Tệp và nội dung cá nhân chỉ lưu trong thư mục QA cục bộ ngoài source repo, không đưa vào Git/Netlify/source ZIP.
+
+Suite backend đạt **216 passed, 4 skipped**; sau tinh chỉnh độ rộng trường dài và dấu dọc, **47 kiểm thử liên quan đạt**. Kiểm tra bao gồm đủ/thiếu/trùng/ID lạ trong bố cục, giữ nguyên văn bản, không gộp hai bảng liền nhau và không mất vùng khi dựng Word. Build frontend/Docker đạt; UI fixture kiểm tra nhóm trường trong ô kết quả, 20 ngôn ngữ, sửa nội dung và tải Word đạt.
+
+## Định dạng Word theo cấu trúc PDF — 17/11/2026
+
+Luồng đọc PDF yêu cầu metadata cho từng đoạn: vai trò, căn lề, cỡ chữ, đậm/nghiêng/gạch chân; bảng có số hàng tiêu đề lặp. Kiểm tra kiểu/enum/số hữu hạn trước khi công bố. Metadata đi xuyên qua kết quả, chỉnh sửa nội dung, bộ xem trước và Word. Giữ Title/Heading, định dạng chữ đen, cột song song, tỷ lệ cột, ô gộp và khoảng cách trước/sau bảng. Bỏ đường viền màu từ style Title của template; cột xác nhận căn giữa dùng không gian cột để tên không bị bó vào hộp chữ gốc. Ô giãn với nội dung và không dùng chiều cao exact.
+
+Đã render mẫu tổng hợp có tiêu đề, bảng ô gộp, nhãn/giá trị, hai cột xác nhận và ghi chú bằng `render_docx.py`, xem ảnh một trang. Đã dịch thật thêm PDF tự tạo qua kết nối đang có: 15 vùng, 1 bảng, 1 ô gộp, nhận được metadata định dạng; xuất Word và render/kiểm tra một trang. Sau khi điều chỉnh chiều rộng cột, dựng lại cùng kết quả mô hình mà không gọi dịch lần nữa. Không gửi giấy tờ cá nhân để kiểm thử. Chất lượng cấu trúc trên mẫu không chứng minh mọi PDF hoặc bản dịch đều đúng tuyệt đối.
+
+Build TypeScript/Vite và Docker đạt; UI fixture kiểm tra 20 đích, ẩn câu lệnh, định dạng tiêu đề, bảng, tải Word, sửa bản dịch, đổi đích, retry và responsive 320/375/768/1280px. Suite backend cuối đạt **209 passed, 4 skipped** trong container không mạng/DB tạm; một cảnh báo deprecated Starlette/AnyIO. Bộ kiểm thử bao gồm cả từ chối metadata lỗi, giữ kiểu chữ khi xuất, ô giãn, hàng tiêu đề và cột xác nhận đủ rộng.
+
+## Tự áp dụng câu lệnh, bỏ ô nhập — 17/11/2026
+
+Giao diện PDF sang Word chỉ cần chọn tài liệu, nguồn/đích và bấm dịch. Đã bỏ ô câu lệnh, lời nhắc nhập câu lệnh và CSS không còn dùng. Câu lệnh nội bộ vẫn được tạo tại thời điểm gửi theo đúng ngôn ngữ đích và áp dụng hướng dẫn Translator Pro; không thay đổi bộ dịch/backend.
+
+Build TypeScript/Vite đạt. Kiểm tra browser bằng fixture xác nhận không có ô/nội dung câu lệnh trên màn hình, gửi đúng yêu cầu nội bộ cho đủ 20 đích, giữ PDF gốc, kết quả/bảng/Word, cache tải, đổi đích vô hiệu kết quả cũ, sửa nội dung bản dịch, thử lại lỗi và responsive 320/375/768/1280. Không gọi mô hình thật trong lượt kiểm tra giao diện này.
+
+## Mở đăng nhập ChatGPT và nhận kết quả ở tab gốc — 16/11/2026
+
+Lần kết nối được báo lỗi vẫn ở trạng thái pending, cổng callback phản hồi; chưa có callback xác thực thành công. Đã thay chuyển trang hiện tại bằng mở tab từ thao tác bấm, giữ tab app gốc; cung cấp liên kết OpenAI và nút sao chép khi popup/trình duyệt nhúng không mở được. Chỉ chấp nhận origin auth.openai.com. Tự kiểm tra trạng thái cùng phiên app mỗi 3 giây trong lúc chờ, tải mô hình khi callback completed, báo failed/hết hạn và dừng polling khi rời thành phần. Không đổi quyền, cookie, tài khoản hay vòng xác minh OAuth.
+
+Build TypeScript/Vite và Docker web đạt. Kiểm tra browser cô lập xác nhận mở popup bình thường, fallback khi popup bị chặn, giữ tab, sao chép, completed/tải mô hình, failed/hết hạn, chặn URL sai origin. Toàn bộ OAuth của test là fixture; chưa xác nhận chủ tài khoản hoàn tất đăng nhập thật sau thay đổi này.
+
+## Sửa nhận kết quả streaming — 16/11/2026
+
+Tái hiện thật lỗi PDF: máy chủ nhận `response.output_item.done` có bản dịch nhưng `response.completed` trả `output: []`, khiến parser cũ bỏ mất nội dung và endpoint trả 502. Thu các item đã hoàn tất theo `output_index` và dùng khi output cuối rỗng; vẫn bắt buộc trạng thái response completed, đủ thứ tự item và message completed. Không dùng delta hoặc kết quả dở dang.
+
+93 kiểm thử trong `test_chatgpt.py` và `test_original_document.py` đạt ở container không mạng/DB tạm, gồm khôi phục item đúng thứ tự, tính usage, từ chối thiếu completed/failed/incomplete/message chưa xong và PDF→Word. Bản triển khai mới đã dịch thật một PDF tự tạo có câu tiếng Anh cùng ảnh chứa số tham chiếu 12345 sang hai đoạn tiếng Việt, giữ số và tạo DOCX 36.842 byte trong 6,6 giây. Không gửi tài liệu cá nhân để thử; kết quả này chỉ xác nhận mẫu kiểm tra, không chứng nhận mọi tài liệu/ngôn ngữ.
+
 ## Tự chọn định dạng và 20 ngôn ngữ — 14/11/2026
 
 Bổ sung Ý, Bồ Đào Nha, Hà Lan, Ả Rập; endpoint, bộ phát hiện, schema đọc ảnh và cả ba bộ chọn giao diện dùng chung danh sách 20 ngôn ngữ. Container cài và kiểm tra thật traineddata OCR của đủ 20 ngôn ngữ. Các bộ chọn nguồn có thêm mục Tự phát hiện.
@@ -85,3 +127,54 @@ npm run test:image-layout
 ```
 
 Container test không có mạng, không gắn volume tài khoản sản xuất. Bộ kiểm thử trình duyệt và ảnh mẫu thực tế của đợt kiểm tra nằm trong thư mục `work` của workspace, ngoài ZIP source ứng dụng; không chạy inference thật tự động khi chạy pytest.
+
+## PDF sang Word — cập nhật 14/11/2026
+
+Luồng tài liệu mặc định đã chuyển sang Word: tải PDF → phân tích từng trang và ảnh chèn/scan → dịch → tạo DOCX trực tiếp. Analyze/complete nhận output_format=word; complete không gọi export_pdf, không inpaint nền, không phụ thuộc phông PDF hoặc khoảng trống trên ảnh gốc. API PDF giữ form cũ vẫn tương thích nhưng không nằm trong luồng tài liệu chính.
+
+Dò bảng trước khi nhóm OCR để tách nhãn/giá trị theo ô; giữ chữ chú thích nhỏ đã nhận diện, không bỏ chữ hoa thông thường và không bỏ qua ảnh đính kèm. Word dùng A4 trắng, chữ 11pt, khung/bảng native có ô gộp và hàng tự giãn. Preview hiển thị cấu trúc bảng; Word tải về chứa toàn bộ các trang nhận diện được. OCR mờ không được tự bịa nội dung.
+
+Kiểm chứng: 170 passed, 4 skipped trong container không mạng/DB tạm; frontend build đạt; test trình duyệt kiểm tra đủ 20 ngôn ngữ, tự phân tích, xuất Word, cache tải lại, đổi ngôn ngữ vô hiệu kết quả cũ, chỉnh sửa mới nhất, lỗi dịch/Word và thử lại, bố cục 320/375/768/1280px. Không gọi mô hình trong các test này. File Word layout fixture đã được Microsoft Word render thành hai trang và xem cả hai PNG: bảng/khung, tiếng Việt, chữ cuối trang, không nền vàng và không cắt chữ.
+
+Kiểm tra trực tiếp localhost với PDF tự tạo hai trang xác nhận native text, ảnh chèn, full-page scan và bảng được phân tích. Tài khoản admin đang unconfigured; không thực hiện inference thật và không dùng fixture để khẳng định chất lượng dịch. PDF vẫn được phân tích khi chưa có kết nối; bước dịch/xuất bản dịch yêu cầu tài khoản đã được admin cấp kết nối hợp lệ. Dữ liệu tài khoản sản xuất được giữ nguyên.
+
+## Sửa PDF hiển thị 2 trang nhưng báo giới hạn 10 trang — 14/11/2026
+
+Nguyên nhân: PDFium/pypdf đọc được 2 trang nhưng PDFMiner/pdfplumber trả 0 trang từ cấu trúc tham chiếu của PDF. Giới hạn trang giờ đối chiếu số trang renderer; khi bộ trích xuất không thống nhất, pypdf dựng bản chỉ dùng cho phân tích trong RAM rồi kiểm tra lại đủ số trang. Bytes gốc lưu trong phiên và file gốc trên đĩa không thay đổi. PDF thật vượt 10 trang và PDF không phục hồi được có thông báo riêng.
+
+Thử đúng tài liệu gây lỗi trong container không mạng xác nhận 2 trang, giữ nguyên bytes gốc. Đồng thời sửa chọn ngôn ngữ trên biểu mẫu có nền hoa văn: lấy bằng chứng rõ từ từng trang, giữ ngữ cảnh OCR đa ngôn ngữ và xác nhận nguồn Latin trên các ảnh tổng quan độc lập. Kết quả kiểm tra cuối: hai trang đều es, 0 ký tự Thái trong nội dung OCR; không gọi mô hình dịch hoặc đưa giấy tờ vào source/GitHub/Netlify.
+
+Kiểm thử sau thay đổi cuối: 45 passed, 1 skipped cho PDF/OCR/Word, gồm phục hồi cây trang rỗng, giới hạn thật, lỗi phục hồi, trang đầu nhiễu và tài liệu xen kẽ ngôn ngữ. Đây là kiểm tra phân tích/OCR, không phải chứng nhận chất lượng bản dịch. Backend local đã build/cập nhật; tài khoản và dữ liệu trong volume giữ nguyên.
+
+## Gửi PDF gốc và câu lệnh riêng — 14/11/2026
+
+Luồng tài liệu mới chỉ gửi dịch khi người dùng bấm Dịch tài liệu. File được chọn hiển thị ngay tại trình xem local. Câu lệnh mặc định có thể sửa; đúng nội dung nhập được gửi cùng toàn bộ bytes PDF gốc qua input_file Base64/high detail, store=false, stream=true, bằng tài khoản ChatGPT của user. Không gọi Files upload API, không dùng Tesseract/PDFMiner cho luồng này, không tự điều khiển ChatGPT.com hoặc tạo lịch sử hội thoại trên website.
+
+Kết quả phải có đủ số trang, dữ liệu vùng/bảng hợp lệ và response.completed trước khi tạo Word rồi cập nhật phiên. File Word dùng lại phản hồi; tải lại không gọi dịch thêm. Đổi file/câu lệnh/ngôn ngữ vô hiệu kết quả cũ ở UI. Nội dung đọc trực tiếp không được gán điểm OCR giả. Ghi chú không chắc chắn từ mô hình hiển thị riêng. Phiên/Word vẫn có kiểm tra chủ sở hữu.
+
+Bộ đầy đủ đạt 189 passed, 4 skipped. Sau bổ sung giữ lựa chọn auto khi dịch lại và chỉnh nhãn nguồn, nhóm original-document/Word đạt 25 passed; frontend build đạt. Browser protocol fixtures kiểm chứng bytes PDF tại máy chủ HTTP nhận upload, bấm nút rõ ràng mới gửi, đúng câu lệnh nhiều dòng, đủ 20 lựa chọn, cập nhật ô kết quả/bảng, Word tải lặp không gọi lại, sửa bản dịch, thử lại lỗi, quyền truy cập và responsive 320–1280px. Đây là kiểm thử giao thức, không chứng minh chất lượng dịch thực tế.
+
+Bản local mới đã chạy: endpoint prepare nhận PDF tự tạo hai trang và tạo preview mà không sinh khối OCR. Admin hiện unconfigured, nên chưa gọi mô hình thật cho luồng PDF gốc; không sử dụng tài liệu cá nhân làm đầu vào dịch trong đợt kiểm thử này. Netlify vẫn chỉ là bản xem giao diện đã xuất bản trước đó.
+# Bản thử Netlify dùng API riêng ngày 23/11/2026
+
+- Đã build TypeScript/Vite và kiểm tra 20 test cho validation, quyền gọi, file gốc, API key riêng từng request, phản hồi hoàn tất, quota và lỗi provider. Test hoàn toàn dùng fixture, không dùng khóa thật.
+- Kiểm tra trình duyệt riêng: landing → bản thử, 20 ngôn ngữ, kiểm tra kết nối có chủ đích, dịch văn bản/ảnh/PDF/TXT, Word có bảng, xử lý lỗi và file quá dung lượng, giao diện 320/375/768/1280 px, xóa khóa khi tải lại, không lưu khóa vào localStorage/sessionStorage. Không có lệnh gọi OpenAI tính phí trong bài kiểm tra.
+- Word mẫu kiểm thử xuất đúng A4 portrait, 1 bảng 2 hàng 4 ô, Arial 12 pt; đã render kiểm tra khung và tiêu đề màu đen. Đây là tài liệu fixture, không phải bản dịch thật của khách.
+- Draft Netlify xác nhận `/api/trial` hoạt động, thiếu khóa trả 401, sai Origin trả 403, khóa giả được OpenAI từ chối và app trả 401 rõ ràng. Không công bố kết nối thành công bằng khóa thật khi chưa có khóa.
+- Giới hạn bản thử: file 3 MB, văn bản 12.000 ký tự, thời gian chờ provider 50 giây; không xuất phản hồi incomplete, không tự lặp yêu cầu có thể tính phí. Quản trị local không được công khai.
+
+# Giữ đúng loại đầu ra ngày 24/11/2026
+
+- Văn bản → nội dung chữ/TXT; Word văn bản là lựa chọn thêm. Ảnh → PNG giữ đúng kích thước; PDF → PDF đủ trang, đúng kích thước cả trang ngang; DOCX → chỉnh chữ trong gói Word gốc thay vì dựng lại form.
+- Backend: 232 passed, 4 skipped trong container riêng không mạng/không gắn volume tài khoản thật. Netlify: 26 kiểm thử validation, completeness, run IDs, tọa độ và schema parity đạt. Không có khóa hay lượt dịch tính phí trong bộ test.
+- Kiểm thử trình duyệt với fixture riêng đạt xuất TXT/Word/PNG/PDF/DOCX, Word nhiều lô và ảnh nhúng, preview trước API, chặn PDF thiếu trang, 20 ngôn ngữ và 320/375/768/1280 px.
+- File thực xuất từ trình duyệt: PNG 1000×700, đối chiếu điểm ảnh ngoài mọi vùng chữ hoàn toàn không đổi; PDF 3 trang A4 dọc/A4 ngang/A5 dọc khớp kích thước; DOCX giữ cấu trúc XML ngoài chữ, 93 run, header/footer, ô gộp và các phần không chỉnh sửa. Đã render và xem 3 trang Word cùng 3 trang PDF.
+- Mẫu kiểm thử chỉ kiểm tra giao thức và cách xuất file, không phải minh chứng chất lượng dịch/OCR của OpenAI. Chưa có khóa API thật được sử dụng để đánh giá dịch cuối cùng.
+
+# API chỉ dành cho admin — 24/11/2026
+
+- Đã thay bản BYOK công khai bằng đăng nhập thật trên Netlify Functions; tài khoản và cấu hình dùng chung lưu mã hóa tại Netlify Blobs. Bootstrap tạo admin online riêng bằng mật khẩu mạnh, không đổi tài khoản local. File thông tin đăng nhập nằm ngoài repo và thư mục publish.
+- 33 kiểm thử Node đạt: quyền admin/user, khóa không trả về, mã hóa, giới hạn đăng nhập sai, CSRF, ghi đồng thời, thu hồi phiên, khóa/xóa tài khoản và chặn xóa admin cuối cùng. Backend 232 passed / 4 skipped; nhóm API dùng chung 8 passed sau bổ sung xác minh lỗi user không hiện provider/model/quota.
+- UI fixtures kiểm tra đăng nhập/đăng xuất, cả ba tab dịch và tài khoản user không có API/OpenAI/ChatGPT/model/hạn mức; không gọi endpoint admin. Admin có cấu hình, ô khóa dạng password, xóa nội dung khóa sau khi lưu, kiểm tra kết nối và quản lý user. Responsive 375/1280 px đạt. Bộ xuất văn bản/PNG/PDF/DOCX/ảnh nhúng/20 ngôn ngữ cũng đạt.
+- Đã kiểm tra HTTP thật trên draft và production: khởi tạo kho mã hóa, admin đăng nhập, tạo user tạm, user đăng nhập, endpoint quản trị trả 403, khi chưa cấu hình chỉ báo liên hệ admin, khóa tài khoản vô hiệu phiên và xóa user tạm. Không gửi khóa giả lên production và không gọi OpenAI tính phí.
+- Production: `6b059c9f4e2a26e3172edb2b`, https://kun-global-dichthuat-hoanganh.netlify.app. Chưa cấu hình khóa OpenAI thật; admin phải lưu và kiểm tra kết nối trước khi user dịch. Không coi các fixture là kết quả kiểm định chất lượng dịch thật.

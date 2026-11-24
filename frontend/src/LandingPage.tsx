@@ -1,7 +1,7 @@
 import {ArrowRight,ArrowUpRight,FileText,Globe2,Languages,Landmark,Mail,MapPin,Phone,ShieldCheck,Stamp,BookOpen,Check} from 'lucide-react';
 import './landing.css';
 
-type Props={signedIn:boolean;onStart:()=>void};
+type Props={signedIn:boolean;onStart:()=>void;trial?:boolean};
 const services=[
   {icon:Languages,title:'Dịch thuật',tag:'Đa ngôn ngữ',description:'Chuyển ngữ giấy tờ, tài liệu để kết nối với những hành trình quốc tế.'},
   {icon:Stamp,title:'Công chứng',tag:'Nhanh chóng',description:'Hỗ trợ công chứng giấy tờ cá nhân theo nhu cầu sử dụng hồ sơ.'},
@@ -9,14 +9,14 @@ const services=[
   {icon:Globe2,title:'Hợp pháp hóa tại Đại sứ quán',tag:'Các nước',description:'Đồng hành cùng hồ sơ cần thực hiện thủ tục tại Đại sứ quán.'},
   {icon:ShieldCheck,title:'Hỗ trợ trọn gói',tag:'Từ A - Z',description:'Kết nối các bước xử lý, giúp bạn theo dõi hành trình của hồ sơ.'},
 ];
-export function LandingPage({signedIn,onStart}:Props){
-  const destination=signedIn?'/app':'/login';
+export function LandingPage({signedIn,onStart,trial=false}:Props){
+  const destination=signedIn||trial?'/app':'/login';
   return <div className="landing-page">
     <header className="landing-header">
       <a className="landing-brand" href="/" aria-label="KUN GLOBAL trang chủ"><span className="brand-logo-frame"><img src="/kun-global-logo-v2.png" alt="KUN GLOBAL" width="1033" height="1042"/></span></a>
       <nav aria-label="Điều hướng trang giới thiệu"><a href="#dich-vu">Dịch vụ</a><a href="#ho-so">Hồ sơ cá nhân</a><a href="#lien-he">Liên hệ</a></nav>
       <a className="landing-header-phone" href="tel:+84986839092"><Phone size={15}/>0986.839.092</a>
-      <a className="landing-login" href={destination} onClick={event=>{if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey){event.preventDefault();onStart();}}}>{signedIn?'Mở ứng dụng':'Đăng nhập'}<ArrowUpRight size={16}/></a>
+      <a className="landing-login" href={destination} onClick={event=>{if(!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey){event.preventDefault();onStart();}}}>{trial?'Dịch thử online':signedIn?'Mở ứng dụng':'Đăng nhập'}<ArrowUpRight size={16}/></a>
     </header>
     <section className="landing-banner" aria-label="Dịch vụ KUN GLOBAL"><img src="/kun-global-services-banner-v2.png" alt="KUN GLOBAL — Hợp pháp hóa lãnh sự giấy tờ cá nhân. Hồ sơ của bạn là trách nhiệm của chúng tôi." width="2055" height="765" fetchPriority="high"/></section>
     <main className="landing-main">

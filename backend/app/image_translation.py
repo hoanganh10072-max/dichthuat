@@ -10,7 +10,6 @@ from PIL import Image, ImageOps
 
 from . import accounts
 from .account_context import current_account
-from .chatgpt import chatgpt
 from .chatgpt_engine import translator_pro_workflow
 from .engine import LANGUAGES
 from .openai_engine import ProviderError
@@ -62,7 +61,7 @@ def translate_image(engine, data, filename, source, target):
     started=time.monotonic()
     try:
         (width,height),image_bytes,mime,image_notes=prepare_image(data,filename)
-        connection=chatgpt.credentials(account['id'])
+        connection=engine.credentials(account['id'])
         if not connection['model']:
             raise ProviderError('Chưa chọn mô hình hỗ trợ đọc ảnh.',409)
         number={'type':'number','minimum':0,'maximum':1000}

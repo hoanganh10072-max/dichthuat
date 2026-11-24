@@ -5,12 +5,13 @@ import './style.css';
 import ImagePreview from './ImagePreview';
 import './image-preview.css';
 import TranslatedImage, { type Layout } from './TranslatedImage';
-import DocumentWorkspace from './DocumentWorkspace';
+import PreservedDocumentWorkspace from './PreservedDocumentWorkspace';
 import './kun-global.css';
 import './translation-workspace.css';
 import {AccountGate,AccountPanel} from './Accounts';
 import {accountApi,accountFile,saveWord,jsonRequest,type Account} from './account-api';
 import './translator.css';
+import {PUBLIC_PREVIEW,PREVIEW_NOTICE,PREVIEW_LANGUAGES} from './public-preview';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(console.error); });
@@ -37,7 +38,7 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
   const [tab, setTab] = useState<'text' | 'image' | 'document'>('text');
   const [documentMode,setDocumentMode]=useState<'form'|'text'>('form');
   const [documentBusy,setDocumentBusy]=useState(false);
-  const [langs, setLangs] = useState(defaults);
+  const [langs, setLangs] = useState(PUBLIC_PREVIEW?PREVIEW_LANGUAGES:defaults);
   const [source, setSource] = useState('auto');
   const [target, setTarget] = useState('vi');
   const [detected, setDetected] = useState<Detection | null>(null);
@@ -51,7 +52,7 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
   const [wordBusy,setWordBusy]=useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [extracting, setExtracting] = useState(false);
-  const [health, setHealth] = useState<Health>({ model: 'checking', message: 'Đang kết nối máy chủ' });
+  const [health, setHealth] = useState<Health>(PUBLIC_PREVIEW?{model:'preview',message:PREVIEW_NOTICE}:{ model: 'checking', message: 'Đang kết nối máy chủ' });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [fileName, setFileName] = useState('');
@@ -85,6 +86,7 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
     finally { setLoggingOut(false); }
   }
   useEffect(() => {
+    if(PUBLIC_PREVIEW)return;
     if(tab==='image' && imagePreview){setDetecting(false);return;}
     if (source !== 'auto' || !input.trim() || extracting) { setDetected(null); setDetecting(false); return; }
     let active = true;
@@ -102,9 +104,9 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
   useEffect(() => { if (locked) setHistoryOpen(false); }, [locked, historyOpen]);
   const name = (code: string) => langs.find(l => l.code === code)?.name || code;
   useEffect(() => {
-    const check = () => api('health').then(setHealth).catch(() => setHealth({ model: 'offline', message: 'Chưa kết nối được máy chủ' }));
+    const check = () => {if(!PUBLIC_PREVIEW)void api('health').then(setHealth).catch(() => setHealth({ model: 'offline', message: 'Chưa kết nối được máy chủ' }));};
     window.addEventListener('kun-chatgpt-changed', check);
-    check(); api('languages').then(setLangs).catch(() => {});
+    check(); if(!PUBLIC_PREVIEW)void api('languages').then(setLangs).catch(() => {});
     const timer = window.setInterval(check, 15000);
     const installation = (event: Event) => { event.preventDefault(); setInstall(event as InstallEvent); };
     const connection = () => setOnline(navigator.onLine);
@@ -113,7 +115,7 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
     return () => { window.removeEventListener('kun-chatgpt-changed', check); clearInterval(timer); window.removeEventListener('beforeinstallprompt', installation); window.removeEventListener('online', connection); window.removeEventListener('offline', connection); };
   }, []);
   useEffect(() => { const params=new URLSearchParams(window.location.search);const outcome=params.get('chatgpt'); if(outcome){if(account.role==='admin'){const user=params.get('chatgpt_user');setAccountUser(user);setAccountSection(user?'users':'provider');}setAccountOpen(true);window.history.replaceState(null,'',window.location.pathname);}},[]);
-  useEffect(() => { api('history').then(setHistory).catch(()=>setNotice('Chưa tải được lịch sử của tài khoản.')); }, [account.id]);
+  useEffect(() => { if(PUBLIC_PREVIEW)return; api('history').then(setHistory).catch(()=>setNotice('Chưa tải được lịch sử của tài khoản.')); }, [account.id]);
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(t); }, [notice]);
   function invalidate() { setOutput(''); setTiming(null); setError(''); setTranslatedLayout(null); }
   function chooseSource(value: string) {
@@ -210,13 +212,13 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
   }
   async function removeHistory(id?:string){try{await api(id?`history/${id}`:'history',{method:'DELETE'});setHistory(items=>id?items.filter(e=>e.id!==id):[]);}catch{setNotice('Chưa xóa được lịch sử. Vui lòng thử lại.');}}
   return <div className="translator-page">
-    <header className="translator-header"><a className="brand" href="/" aria-label="KUN GLOBAL trang chủ"><span className="brand-logo-frame"><img src="/kun-global-logo-v2.png" alt="KUN GLOBAL" width="1033" height="1042"/></span><span className="translator-wordmark" aria-hidden="true"><strong>KUN GLOBAL</strong><small>KHÔNG GIAN DỊCH THUẬT</small></span></a><nav aria-label="Tài khoản và tiện ích"><button aria-label="Lịch sử" title="Lịch sử dịch" onClick={() => setHistoryOpen(true)}><History size={18}/><span>Lịch sử</span>{history.length > 0 && <b className="count">{history.length}</b>}</button><button className="install" aria-label="Cài ứng dụng" onClick={async () => { if (install) { await install.prompt(); setInstall(null); } else setNotice('Cài ứng dụng từ menu trình duyệt → Cài đặt ứng dụng / Thêm vào màn hình chính. iPhone: Safari → Chia sẻ → Thêm vào MH chính. Cần HTTPS hoặc localhost.'); }}><Download size={17}/><span>Cài ứng dụng</span></button><button className="account-menu-button" aria-label={account.role==='admin'?'Quản trị và tài khoản':'Tài khoản'} disabled={locked} onClick={()=>setAccountOpen(true)}><UserRound size={17}/><span>{account.username}</span></button><button className="header-logout" aria-label={loggingOut?'Đang đăng xuất…':'Đăng xuất'} disabled={locked} onClick={()=>void signOut()}><LogOut size={17}/><span>{loggingOut?'Đang đăng xuất…':'Đăng xuất'}</span></button></nav></header>
-    <main className="translator-main">
+    <header className="translator-header"><a className="brand" href="/" aria-label="KUN GLOBAL trang chủ"><span className="brand-logo-frame"><img src="/kun-global-logo-v2.png" alt="KUN GLOBAL" width="1033" height="1042"/></span><span className="translator-wordmark" aria-hidden="true"><strong>KUN GLOBAL</strong><small>KHÔNG GIAN DỊCH THUẬT</small></span></a><nav aria-label="Tài khoản và tiện ích"><button aria-label="Lịch sử" title="Lịch sử dịch" disabled={PUBLIC_PREVIEW} onClick={() => setHistoryOpen(true)}><History size={18}/><span>Lịch sử</span>{history.length > 0 && <b className="count">{history.length}</b>}</button><button className="install" aria-label="Cài ứng dụng" onClick={async () => { if (install) { await install.prompt(); setInstall(null); } else setNotice('Cài ứng dụng từ menu trình duyệt → Cài đặt ứng dụng / Thêm vào màn hình chính. iPhone: Safari → Chia sẻ → Thêm vào MH chính. Cần HTTPS hoặc localhost.'); }}><Download size={17}/><span>Cài ứng dụng</span></button><button className="account-menu-button" aria-label={account.role==='admin'?'Quản trị và tài khoản':'Tài khoản'} disabled={locked||PUBLIC_PREVIEW} onClick={()=>setAccountOpen(true)}><UserRound size={17}/><span>{account.username}</span></button><button className="header-logout" aria-label={PUBLIC_PREVIEW?'Về trang chủ':loggingOut?'Đang đăng xuất…':'Đăng xuất'} disabled={locked} onClick={()=>void signOut()}><LogOut size={17}/><span>{PUBLIC_PREVIEW?'Về trang chủ':loggingOut?'Đang đăng xuất…':'Đăng xuất'}</span></button></nav></header>
+    <main className="translator-main">{PUBLIC_PREVIEW&&<div className="public-preview-notice" role="status">{PREVIEW_NOTICE}</div>}
       <section className="intro"><div className="intro-copy"><div className="eyebrow"><span/> KUN GLOBAL · KẾT NỐI GIÁ TRỊ</div><h1>Một không gian.<br/><span>Kết nối mọi ngôn ngữ.</span></h1><p>Dịch văn bản, hình ảnh và tài liệu của bạn.<br className="desktop"/> Bắt đầu từ điều bạn muốn thấu hiểu hôm nay.</p><div className="intro-languages"><Languages size={15}/><span>TIẾNG VIỆT</span><i/><span>ENGLISH</span><i/><span>中文</span><i/><span>한국어</span><span>20 ngôn ngữ</span></div></div></section>
       <div className="workspace-heading"><div><span className="translator-section-label">KHÔNG GIAN LÀM VIỆC</span><h2>Bàn dịch của bạn</h2></div><p>{tab==='text'?'Nhập nội dung, chọn ngôn ngữ và bắt đầu dịch.':tab==='image'?'Đọc chữ trong ảnh, kết nối ý nghĩa.':'Từ tài liệu gốc đến bản dịch của bạn.'}</p></div>
-      {health.model==='unconfigured'&&<div className="connect-banner"><div><strong>{isAdmin?'Kết nối ChatGPT để bắt đầu dịch':'Chưa được cấp quyền sử dụng'}</strong><span>{isAdmin?'Dùng tài khoản và hạn mức riêng của bạn, không cần khóa API.':contactAdmin}</span></div>{isAdmin&&<button onClick={()=>setAccountOpen(true)}>Kết nối ChatGPT <ArrowRight size={16}/></button>}</div>}<section className="workspace" aria-label="Trình dịch"><div className="workspace-top"><div className="tabs" role="tablist" aria-label="Loại nội dung">{([{ key: 'text', label: 'Văn bản', hint: 'Nhập và dịch', icon: Languages }, { key: 'image', label: 'Hình ảnh', hint: 'Đọc chữ trong ảnh', icon: Image }, { key: 'document', label: 'Tài liệu', hint: 'PDF, DOCX, TXT', icon: FileText }] as const).map(t => <button key={t.key} role="tab" aria-label={t.label} aria-selected={tab === t.key} disabled={locked} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setError(''); }}><span className="tab-icon"><t.icon size={19}/></span><span className="tab-copy"><strong>{t.label}</strong><small>{t.hint}</small></span></button>)}</div><div className={`status ${health.model === 'ready' ? 'ready' : ''}`} title={health.message}><span/>{health.model === 'ready' ? (isAdmin?'ChatGPT đã kết nối':'Sẵn sàng dịch') : health.model === 'loading' ? 'Đang cấu hình' : health.model === 'checking' ? 'Đang kết nối' : (isAdmin?'Chưa kết nối ChatGPT':'Chưa được cấp quyền')}</div></div>
-      {isAdmin&&health.model==='ready'&&<div className="plan-usage"><span>Sử dụng gói ChatGPT của bạn</span><a href="https://chatgpt.com/#settings/Usage" target="_blank" rel="noreferrer">Quản lý hạn mức</a></div>}{tab==='document'&&<div className="document-mode"><button disabled={locked} aria-pressed={documentMode==='form'} onClick={()=>setDocumentMode('form')}>PDF giữ form</button><button disabled={locked} aria-pressed={documentMode==='text'} onClick={()=>setDocumentMode('text')}>Trích xuất văn bản · DOCX / TXT / PDF</button></div>}
-      {tab==='document'&&documentMode==='form'&&<DocumentWorkspace languages={langs} onBusy={setDocumentBusy} onTextFile={(file,source,target)=>{setDocumentMode('text');setSource(source);setTarget(target);void upload(file,{source,target});}} accountId={account.id} canTranslate={health.model==='ready'}/>}
+      {health.model==='unconfigured'&&<div className="connect-banner"><div><strong>{isAdmin?'Cấu hình API để bắt đầu dịch':'Chưa được cấp quyền sử dụng'}</strong><span>{isAdmin?'Admin cấu hình OpenAI API dùng chung cho các user.':contactAdmin}</span></div>{isAdmin&&<button onClick={()=>{setAccountUser(null);setAccountSection('provider');setAccountOpen(true);}}>Cấu hình API <ArrowRight size={16}/></button>}</div>}<section className="workspace" aria-label="Trình dịch"><div className="workspace-top"><div className="tabs" role="tablist" aria-label="Loại nội dung">{([{ key: 'text', label: 'Văn bản', hint: 'Nhập và dịch', icon: Languages }, { key: 'image', label: 'Hình ảnh', hint: 'Đọc chữ trong ảnh', icon: Image }, { key: 'document', label: 'Tài liệu', hint: 'PDF, DOCX, TXT', icon: FileText }] as const).map(t => <button key={t.key} role="tab" aria-label={t.label} aria-selected={tab === t.key} disabled={locked} className={tab === t.key ? 'active' : ''} onClick={() => { setTab(t.key); setError(''); }}><span className="tab-icon"><t.icon size={19}/></span><span className="tab-copy"><strong>{t.label}</strong><small>{t.hint}</small></span></button>)}</div><div className={`status ${health.model === 'ready' ? 'ready' : ''}`} title={health.message}><span/>{PUBLIC_PREVIEW?'Xem giao diện':health.model === 'ready' ? (isAdmin?'API đã cấu hình':'Sẵn sàng dịch') : health.model === 'loading' ? 'Đang cấu hình' : health.model === 'checking' ? 'Đang kết nối' : (isAdmin?'Chưa cấu hình API':'Chưa được cấp quyền')}</div></div>
+      {isAdmin&&health.model==='ready'&&<div className="plan-usage"><span>Sử dụng OpenAI API</span><a href="https://platform.openai.com/usage" target="_blank" rel="noreferrer">Xem sử dụng API</a></div>}{tab==='document'&&<div className="document-mode"><button disabled={locked} aria-pressed={documentMode==='form'} onClick={()=>setDocumentMode('form')}>Dịch giữ form · PDF / DOCX / TXT</button><button disabled={locked} aria-pressed={documentMode==='text'} onClick={()=>setDocumentMode('text')}>Chỉ lấy nội dung văn bản</button></div>}
+      {tab==='document'&&documentMode==='form'&&<PreservedDocumentWorkspace languages={langs} onBusy={setDocumentBusy} canTranslate={health.model==='ready'}/>}
       <div className="legacy-panel" hidden={tab==='document'&&documentMode==='form'}>
       {tab !== 'text' && <div className="upload-zone" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); upload(e.dataTransfer.files[0]); }}><span className="upload-icon"><Upload size={23}/></span><div><strong>{extracting ? 'Đang trích xuất văn bản…' : tab === 'image' ? 'Tải ảnh để tự dịch' : 'Tải tài liệu để tự dịch'}</strong><p>{tab === 'image' ? 'PNG, JPG, WEBP · Đọc ảnh gốc và dịch toàn bộ nội dung' : 'PDF có văn bản, DOCX, TXT · Tối đa 30 trang PDF'} · 10 MB</p></div><button disabled={locked} className="secondary" onClick={() => fileRef.current?.click()}>{extracting ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>}Chọn {tab === 'image' ? 'ảnh' : 'tài liệu'}</button><input hidden ref={fileRef} type="file" accept={tab === 'image' ? '.png,.jpg,.jpeg,.webp' : '.pdf,.docx,.txt'} onChange={e => upload(e.target.files?.[0])}/></div>}
       <div className="language-bar">
@@ -237,7 +239,7 @@ function App({account,onLogout,onRefresh}:{account:Account;onLogout:()=>Promise<
       </div>
       {error && <div className="error" role="alert">{error}</div>}
       {!online && <div className="error"><WifiOff size={17}/>Bạn đang offline. Có thể xem lịch sử; dịch và đọc file cần kết nối máy chủ.</div>}
-      <div className="workspace-bottom"><div className="workspace-privacy"><span><LockKeyhole size={18}/></span><div><strong>Dịch thuật đa ngôn ngữ</strong><small>{health.model==='ready'?(tab==='image'?'Ảnh và nội dung cần dịch được gửi đến OpenAI.':'Văn bản cần dịch được gửi đến OpenAI.'):'Quyền sử dụng do quản trị viên cấp.'}</small></div></div><button className="primary" onClick={translate} disabled={locked || (!input.trim() && !(tab==='image' && imageFileRef.current)) || !online || health.model !== 'ready'}>{busy ? <LoaderCircle className="spin" size={18}/> : null}{busy ? 'Đang dịch' : 'Dịch ngay'}{!busy && <ArrowRight size={18}/>}</button></div></div></section>
+      <div className="workspace-bottom"><div className="workspace-privacy"><span><LockKeyhole size={18}/></span><div><strong>Dịch thuật đa ngôn ngữ</strong><small>{health.model==='ready'?(isAdmin?(tab==='image'?'Ảnh và nội dung cần dịch được gửi đến OpenAI.':'Văn bản cần dịch được gửi đến OpenAI.'):'Nội dung được xử lý tại máy chủ dịch.'):'Quyền sử dụng do quản trị viên cấp.'}</small></div></div><button className="primary" onClick={translate} disabled={locked || (!input.trim() && !(tab==='image' && imageFileRef.current)) || !online || health.model !== 'ready'}>{busy ? <LoaderCircle className="spin" size={18}/> : null}{busy ? 'Đang dịch' : 'Dịch ngay'}{!busy && <ArrowRight size={18}/>}</button></div></div></section>
       <div className="under-workspace"><span><ShieldCheck size={14}/> Lịch sử riêng theo tài khoản</span><span>Phím tắt <kbd>Ctrl</kbd> + <kbd>Enter</kbd></span></div>
       <div className="desk-bottom">
         <section className="desk-benefits" aria-label="Tiện ích của KUN GLOBAL">

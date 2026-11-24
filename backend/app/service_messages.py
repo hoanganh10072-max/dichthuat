@@ -10,7 +10,7 @@ def is_admin():
 
 
 def access_message():
-    return 'Hãy mở ChatGPT của tôi để kết nối tài khoản và chọn mô hình trước khi dịch.' if is_admin() else CONTACT_ADMIN
+    return 'Mở Quản trị → OpenAI API để cấu hình khóa và mô hình trước khi dịch.' if is_admin() else CONTACT_ADMIN
 
 
 def provider_message(error):
@@ -19,5 +19,5 @@ def provider_message(error):
     if error.status_code in (401, 403, 409):
         return CONTACT_ADMIN
     if error.status_code == 429:
-        return 'Đã đạt hạn mức sử dụng. Vui lòng liên hệ admin để được trợ giúp.'
+        return CONTACT_ADMIN
     return 'Dịch vụ dịch đang tạm gián đoạn. Vui lòng thử lại hoặc liên hệ admin để được trợ giúp.'

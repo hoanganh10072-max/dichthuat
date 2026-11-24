@@ -162,3 +162,23 @@ Thanh tab nâu với mục chọn vàng, thẻ chọn nguồn/đích, hai khung 
 
 ## Mô tả ứng dụng đa ngôn ngữ
 Đã bỏ thông điệp ưu tiên Việt–Lào khỏi phần giới thiệu, thẻ tính năng, footer, mô tả trang và manifest PWA. Dòng ngôn ngữ minh họa có Việt/Anh/Trung/Hàn; không giới hạn lựa chọn nguồn/đích. Docker build thành công; trình duyệt xác nhận nội dung mới và danh sách 16 ngôn ngữ. Ảnh: outputs/kun-global-da-ngon-ngu.png.
+
+## Kiểm chứng PDF → Word, 14/11/2026
+
+- Backend: 170 passed, 4 skipped, không mạng và DB tạm; OCR PDF có native text, ảnh chèn, full-page scan, chữ cuối trang, bảng và footnote nhỏ; output_format=word chạy đủ 20 ngôn ngữ, không đi qua PDF overlay. Test mô hình là protocol fixture, không chứng minh chất lượng dịch.
+- Frontend: build đạt; tự phân tích/hoàn tất, preview bảng trắng, tải DOCX, cache file và tải lại, đổi ngôn ngữ không tải nhầm, gửi chỉnh sửa mới nhất, thử lại khi lỗi, OCR độc lập với trạng thái kết nối dịch, responsive 320–1280px đều đạt.
+- Visual QA: Word layout fixture → PDF bằng phiên Microsoft Word ẩn riêng → PNG bằng bundled pypdfium2; xem đủ hai trang, không cắt/đè chữ, bảng giữ cột/khung và nguồn nền vàng không nhúng vào DOCX. Bundle Windows không có LibreOffice; không dùng LibreOffice desktop.
+- Live local: đăng nhập bằng phiên kiểm thử riêng; phân tích PDF tự tạo hai trang thành công. Admin chưa kết nối dịch nên không gọi mô hình thật; phiên kiểm thử đã đăng xuất. Docker backend/web mới được cập nhật, không xóa volume tài khoản. Netlify vẫn là bản xem giao diện, không tự bật backend.
+
+## Hồi quy cấu trúc PDF và nguồn ngôn ngữ — 14/11/2026
+
+- PDFium là nguồn đối chiếu giới hạn trang. PDFMiner trả thiếu/0 trang sẽ dùng bản phục hồi trong bộ nhớ và phải khớp renderer trước khi OCR.
+- Đã kiểm tra trực tiếp trên PDF gây lỗi: 2 trang, nguồn es cho cả hai, không còn chữ Thái do lựa chọn sai OCR, bytes gốc giữ nguyên. Chỉ xử lý local trong container không mạng, không gọi dịch thật.
+- Sau chỉnh sửa cuối: 45 passed, 1 skipped trong nhóm tests/test_documents.py, tests/test_document_word_workflow.py, tests/test_ocr_document_hint.py. Bộ đầy đủ trước phần xác nhận đa mức ảnh tổng quan đã đạt 175 passed, 4 skipped; không mô tả đó là kết quả full suite của thay đổi cuối.
+
+## File gốc + câu lệnh riêng — 14/11/2026
+
+Thêm /api/documents/prepare và /api/documents/translate-original. Kiểm tra giao thức xác nhận PDF không đổi bytes, user prompt không đổi nội dung, ngôn ngữ auto giữ nguyên khi dịch lại, input_file dùng Base64 và không dùng Files upload API. Kiểm tra sai/thiếu trang, vùng không hợp lệ, thiếu quyền, sai chủ sở hữu, giới hạn file, trang trắng và thử lại thất bại không ghi đè Word cũ. Toàn bộ: 189 passed/4 skipped; sau chỉnh lựa chọn nguồn auto: 25 passed cho nhóm liên quan. Frontend build/browser UI đạt; không kiểm tra inference thật vì admin local chưa có kết nối dịch.
+## Bản API dùng chung — 23/11/2026
+
+Admin cấu hình khóa OpenAI API và model tại Quản trị → OpenAI API. User dùng API chung qua backend; không cần ChatGPT OAuth. Khóa không trả lại cho trình duyệt, có test admin/user và lưu mã hóa. Đọc ảnh/PDF và xuất Word giữ luồng kiểm tra nội dung/bố cục hiện có. Chưa có khóa thật để xác nhận lượt dịch API tính phí; kiểm thử API và giao diện dùng fixture không mạng. Nhật ký các bản ChatGPT OAuth phía dưới là lịch sử trước khi chuyển đổi.

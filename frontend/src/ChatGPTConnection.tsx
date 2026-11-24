@@ -10,11 +10,46 @@ export function ChatGPTConnection({managedUser,onBusyChange}:{managedUser?:Accou
   const statusPath=managedUser?prefix:`${prefix}/status`;
   const [status,setStatus]=useState<Connection|null>(null),[models,setModels]=useState<Model[]>([]);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const [authorizationUrl,setAuthorizationUrl]=useState('');
   function changed(){window.dispatchEvent(new Event('kun-chatgpt-changed'));}
   async function load(){const data:Connection=await accountApi(statusPath);setStatus(data);setModels([]);if(data.connected&&data.sharing&&!data.needs_reconnect){setModels(await accountApi(`${prefix}/models`));setStatus(await accountApi(statusPath));}changed();}
   async function action(fn:()=>Promise<void>){setBusy(true);onBusyChange?.(true);setError('');setNotice('');try{await fn();}catch(e){setError(e instanceof Error?e.message:'Không kết nối được ChatGPT.');}finally{setBusy(false);onBusyChange?.(false);}}
   useEffect(()=>{void action(load);},[]);
-  async function connect(){const data=await accountApi(`${prefix}/connect`,{method:'POST'});const url=new URL(data.authorization_url);if(url.origin!=='https://auth.openai.com')throw new Error('Địa chỉ đăng nhập không hợp lệ.');window.location.assign(url.href);}
+  async function connect(){
+    // Open during the click so normal browser popup blocking does not lose
+    // the login. Keep this authenticated app tab for the loopback result.
+    const popup=window.open('about:blank','_blank');
+    if(popup)popup.opener=null;
+    setAuthorizationUrl('');
+    try{
+      const data=await accountApi(`${prefix}/connect`,{method:'POST'});
+      const url=new URL(data.authorization_url);
+      if(url.origin!=='https://auth.openai.com')throw new Error('Địa chỉ đăng nhập không hợp lệ.');
+      setAuthorizationUrl(url.href);
+      setNotice('Đang chờ bạn đăng nhập trên OpenAI. Nếu trang không mở được, sao chép liên kết bên dưới và mở trong Chrome hoặc Edge trên máy này.');
+      if(popup&&!popup.closed)popup.location.replace(url.href);
+    }catch(e){if(popup&&!popup.closed)popup.close();throw e;}
+  }
+  useEffect(()=>{
+    if(!authorizationUrl)return;
+    let live=true,polling=false;
+    const timer=window.setInterval(async()=>{
+      if(polling)return;polling=true;
+      try{
+        const data:Connection=await accountApi(statusPath);
+        if(!live)return;
+        setStatus(data);
+        if(data.attempt?.status==='completed'){
+          setAuthorizationUrl('');
+          void action(async()=>{await load();setNotice('Đã kết nối ChatGPT. Bạn có thể quay lại dịch.');});
+        }else if(data.attempt?.status==='failed'||!data.attempt){
+          setAuthorizationUrl('');setNotice('');setError(data.attempt?.message||'Liên kết đăng nhập đã hết hạn. Bấm Continue with ChatGPT để tạo liên kết mới.');
+        }
+      }catch(e){if(live)setError(e instanceof Error?e.message:'Chưa kiểm tra được kết quả đăng nhập.');}
+      finally{polling=false;}
+    },3000);
+    return()=>{live=false;window.clearInterval(timer);};
+  },[authorizationUrl,prefix,statusPath]);
   return <div className="chatgpt-connection"><div className="chatgpt-intro"><span className="chatgpt-shield"><ShieldCheck size={26}/></span><div><h3>{managedUser?`ChatGPT cho ${managedUser.username}`:'ChatGPT của tôi'}</h3><p>{managedUser?'Admin kết nối hộ. User chỉ cần đăng nhập app và dịch.':'Dùng gói ChatGPT riêng để dịch. Không cần khóa API.'}</p></div></div>
     <div className="chatgpt-status"><span className={status?.ready?'connection-dot ready':'connection-dot'}/><div><strong>{status?.ready?'Sẵn sàng dịch':status?.connected?'Cần hoàn tất kết nối':'Chưa kết nối ChatGPT'}</strong><small>{status?.email||'Mỗi người dùng kết nối tài khoản của mình.'}</small></div></div>
     <p>{managedUser?`Đăng nhập tài khoản ChatGPT riêng của ${managedUser.username} trên trang OpenAI, khi đã được người đó đồng ý. Kết nối chỉ lưu cho user này; user sẽ không cần tự làm bước kết nối.`:'Đăng nhập trên trang chính thức của OpenAI và cấp quyền sử dụng gói ChatGPT cho KUN GLOBAL.'} Văn bản cần dịch được gửi đến OpenAI; OCR và ghép PDF chạy trên máy bạn.</p>
@@ -26,6 +61,7 @@ export function ChatGPTConnection({managedUser,onBusyChange}:{managedUser?:Accou
     {status?.attempt?.status==='failed'&&<div className="account-error">{status.attempt.message}</div>}
     {error&&<div className="account-error" role="alert">{error}</div>}{notice&&<div className="account-notice" role="status">{notice}</div>}
     <button type="button" onClick={()=>void action(connect)} data-oai-siwc-button className="chatgpt-signin" disabled={busy||!status?.local_enabled||!status.callback_ready||(!!managedUser&&!managedUser.active)}>{busy?<LoaderCircle size={18} className="spin"/>:null}Continue with ChatGPT<ExternalLink size={16}/></button>
+    {authorizationUrl&&<div className="chatgpt-login-fallback" role="status"><strong>Hoàn tất đăng nhập trên OpenAI</strong><p>Giữ tab này mở; ứng dụng sẽ tự cập nhật sau khi bạn đăng nhập và cấp quyền. Liên kết có hiệu lực 10 phút.</p><div className="chatgpt-actions"><a href={authorizationUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" data-oai-siwc-button>Mở trang đăng nhập ChatGPT <ExternalLink size={14}/></a><button className="secondary" type="button" onClick={()=>void action(async()=>{await navigator.clipboard.writeText(authorizationUrl);setNotice('Đã sao chép liên kết. Dán vào thanh địa chỉ Chrome hoặc Edge trên máy này để đăng nhập.');})}>Sao chép liên kết đăng nhập</button></div></div>}
     {status?.local_enabled&&!status.connected&&<p className="chatgpt-local-note">Lần đầu kết nối, nếu OpenAI hiện ô tên tác nhân, hãy giữ tên gợi ý KUN GLOBAL và xác nhận cấp quyền.</p>}
     {models.length>0&&<label className="chatgpt-model">{managedUser?'Mô hình dùng cho user này':'Mô hình của tài khoản bạn'}<select value={status?.model||''} disabled={busy} onChange={e=>void action(async()=>{setStatus(await accountApi(`${prefix}/model`,jsonRequest('PUT',{model:e.target.value})));changed();})}>{models.map(model=><option key={model.slug} value={model.slug}>{model.display_name}</option>)}</select></label>}
     <div className="chatgpt-actions"><button className="secondary" disabled={busy} onClick={()=>void action(load)}>Làm mới trạng thái</button><a href="https://chatgpt.com/#settings/Usage" target="_blank" rel="noreferrer">Xem hạn mức ChatGPT <ExternalLink size={14}/></a></div>

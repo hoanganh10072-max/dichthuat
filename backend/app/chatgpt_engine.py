@@ -37,9 +37,13 @@ class ChatGPTEngine:
     def load(self):
         return self.state
 
+    def credentials(self, user_id):
+        return chatgpt.credentials(user_id)
+
     def _response(self, body, access_token):
         from .engine import TranslationTooLong
         completed = None
+        finished_items = {}
         received = 0
         pending = []
 
@@ -58,6 +62,13 @@ class ChatGPTEngine:
                 raise TranslationTooLong('ChatGPT chưa sinh hết bản dịch. Hãy chia nội dung ngắn hơn.')
             if kind in ('error', 'response.failed'):
                 raise ProviderError('ChatGPT không hoàn tất yêu cầu. Kiểm tra gói, hạn mức hoặc kết nối lại.')
+            if kind == 'response.output_item.done':
+                index, item = value.get('output_index'), value.get('item')
+                if type(index) is not int or not 0 <= index < 1024 or not isinstance(item, dict):
+                    raise ProviderError('Vùng kết quả ChatGPT không hợp lệ; chưa hoàn tất bản dịch.')
+                if index in finished_items and finished_items[index] != item:
+                    raise ProviderError('Vùng kết quả ChatGPT bị trùng hoặc thay đổi; hãy thử lại.')
+                finished_items[index] = item
             if kind == 'response.completed':
                 completed = value.get('response')
 
@@ -94,6 +105,14 @@ class ChatGPTEngine:
             raise ProviderError('Mất kết nối tới ChatGPT; chưa nhận đủ bản dịch.', 502)
         if not isinstance(completed, dict) or completed.get('status') != 'completed':
             raise ProviderError('Kết nối đã dừng trước khi ChatGPT hoàn tất. Không dùng bản dịch dở dang.')
+        # Some plan streams put the complete items only in output_item.done.
+        # Never publish deltas or items without the final completed response.
+        if not completed.get('output') and finished_items:
+            if sorted(finished_items) != list(range(len(finished_items))) or any(
+                    item.get('type') == 'message' and item.get('status') != 'completed'
+                    for item in finished_items.values()):
+                raise ProviderError('Chưa nhận đủ vùng kết quả ChatGPT hoàn chỉnh; hãy thử lại.')
+            completed = {**completed, 'output': [finished_items[i] for i in range(len(finished_items))]}
         return completed
 
     def translate_segments(self, segments, source, target, glossary=None, *, document=False):
@@ -108,7 +127,7 @@ class ChatGPTEngine:
         if not self.lock.acquire(False):
             raise BlockingIOError('Ứng dụng đang dịch yêu cầu khác. Vui lòng thử lại.')
         try:
-            connection = chatgpt.credentials(account['id'])
+            connection = self.credentials(account['id'])
             if not connection['model']:
                 raise ProviderError('Mở ChatGPT của tôi để tải và chọn mô hình của tài khoản bạn.', 409)
             schema = {'type': 'object', 'properties': {'translations': {'type': 'array', 'items': {'type': 'string'}}},

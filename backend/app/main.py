@@ -16,7 +16,7 @@ from .auth import AuthenticationMiddleware, auth_router
 from .openai_engine import ProviderError
 from .chatgpt import chatgpt, chatgpt_router, admin_chatgpt_router, start_callback_listener
 from .account_context import current_account
-from .service_messages import CONTACT_ADMIN, is_admin, access_message
+from .service_messages import CONTACT_ADMIN, is_admin, access_message, provider_message
 
 engine = Engine()
 extract_gate = asyncio.Semaphore(1)
@@ -25,7 +25,7 @@ extract_gate = asyncio.Semaphore(1)
 @asynccontextmanager
 async def lifespan(app):
     accounts.store.init()
-    callback = start_callback_listener()
+    callback = None  # API mode never opens an OAuth callback listener.
     task = asyncio.create_task(run_in_threadpool(engine.load))
     cleanup = asyncio.create_task(prune_sessions())
     yield
@@ -48,6 +48,8 @@ from .documents import create_document_router, prune_sessions
 app.include_router(create_document_router(engine))
 from .word_routes import create_word_router
 app.include_router(create_word_router(extract_gate))
+from .form_translation import create_form_router
+app.include_router(create_form_router(engine))
 
 
 class Translation(BaseModel):
@@ -103,9 +105,9 @@ def health():
     if not is_admin():
         return {'status': 'ok', 'model': engine.state, 'engine': 'Dịch thuật đa ngôn ngữ',
                 'message': 'Sẵn sàng dịch.' if configured else CONTACT_ADMIN}
-    return {'status': 'ok', 'model': engine.state, 'engine': 'ChatGPT cá nhân',
-            'message': 'Đã kết nối gói ChatGPT và chọn mô hình của tài khoản bạn.' if configured
-                       else 'Mở ChatGPT của tôi để kết nối tài khoản và cấp quyền dùng gói ChatGPT.'}
+    return {'status': 'ok', 'model': engine.state, 'engine': 'OpenAI API',
+            'message': 'Đã cấu hình API; dùng Kiểm tra kết nối trong quản trị để xác nhận khóa và mô hình.' if configured
+                       else 'Mở Quản trị → OpenAI API để cấu hình khóa và mô hình.'}
 
 
 @app.post('/api/translate-image-vision')
@@ -126,7 +128,7 @@ async def translate_image_vision(file: UploadFile = File(...), source: str = For
     except BlockingIOError as exc:
         raise HTTPException(429,str(exc),headers={'Retry-After':'3'})
     except ProviderError as exc:
-        raise HTTPException(exc.status_code,str(exc))
+        raise HTTPException(exc.status_code,provider_message(exc))
     except ValueError as exc:
         raise HTTPException(422,str(exc)) from exc
     except OSError as exc:
@@ -171,7 +173,7 @@ def translate(request: Translation):
     except BlockingIOError as exc:
         raise HTTPException(429, str(exc), headers={'Retry-After': '3'})
     except ProviderError as exc:
-        raise HTTPException(exc.status_code, str(exc))
+        raise HTTPException(exc.status_code, provider_message(exc))
     except Exception:
         logging.exception('Inference failed')
         raise HTTPException(500, 'Dịch không thành công. Hãy thử đoạn ngắn hơn hoặc kiểm tra log máy chủ.')
